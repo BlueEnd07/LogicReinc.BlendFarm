@@ -2,9 +2,24 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Name="BlendFarm by LogicReinc"
              x:Class="LogicReinc.BlendFarm.App">
+    <Application.Resources>
+        <SolidColorBrush x:Key="BlendFarmWindowBrush" Color="#262626"/>
+        <SolidColorBrush x:Key="BlendFarmSurfaceBrush" Color="#2B2B2B"/>
+        <SolidColorBrush x:Key="BlendFarmPanelBrush" Color="#303030"/>
+        <SolidColorBrush x:Key="BlendFarmPanelSoftBrush" Color="#383838"/>
+        <SolidColorBrush x:Key="BlendFarmButtonBrush" Color="#3A3A3A"/>
+        <SolidColorBrush x:Key="BlendFarmBorderBrush" Color="#484848"/>
+        <SolidColorBrush x:Key="BlendFarmSoftBorderBrush" Color="#585858"/>
+        <SolidColorBrush x:Key="BlendFarmAccentBrush" Color="#3E5F8A"/>
+        <SolidColorBrush x:Key="BlendFarmAccentBorderBrush" Color="#5E87BA"/>
+        <SolidColorBrush x:Key="BlendFarmTextBrush" Color="#F4F6FF"/>
+        <SolidColorBrush x:Key="BlendFarmMutedTextBrush" Color="#B8B8B8"/>
+        <SolidColorBrush x:Key="BlendFarmSubtleTextBrush" Color="#A6A6A6"/>
+    </Application.Resources>
     <Application.Styles>
         <StyleInclude Source="avares://Avalonia.Themes.Default/DefaultTheme.xaml"/>
-        <StyleInclude Source="avares://Avalonia.Themes.Default/Accents/BaseLight.xaml"/>
+        <StyleInclude Source="avares://Avalonia.Themes.Default/Accents/BaseDark.xaml"/>
+        <StyleInclude Source="avares://LogicReinc.BlendFarm/Styles/MainStyle.axaml"/>
     </Application.Styles>
   <NativeMenu.Menu>
     <NativeMenu>

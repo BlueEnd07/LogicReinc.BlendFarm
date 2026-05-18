@@ -32,7 +32,19 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// Name of node
         /// </summary>
-        public string Name { get; set; }
+        private string _name;
+        public string Name
+        {
+            get => _name;
+            set
+            {
+                if (_name != value)
+                {
+                    _name = value;
+                    TriggerPropChange(nameof(Name));
+                }
+            }
+        }
         /// <summary>
         /// Network address of node
         /// </summary>
@@ -75,7 +87,7 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// Render type this node will use
         /// </summary>
-        public RenderType RenderType { get; set; } = RenderType.CPU;
+        public RenderType RenderType { get; set; } = RenderType.OPTIX_GPUONLY;
 
         //State
         /// <summary>

@@ -14,6 +14,9 @@ namespace LogicReinc.BlendFarm.Windows
     public class DeviceSettingsWindow : Window
     {
         private ComboBox selectRenderType = null;
+        private TextBox inputNodeName = null;
+        private TextBlock saveStatus = null;
+        private string originalNodeName = null;
 
         public RenderType[] RenderTypes { get; } = (RenderType[])Enum.GetValues(typeof(RenderType));
         public RenderNode Node { get; set; }
@@ -27,7 +30,7 @@ namespace LogicReinc.BlendFarm.Windows
                 Cores = 16,
                 ComputerName = "SomeDesktopName",
                 OS = "windows64",
-                RenderType = RenderType.CPU,
+                RenderType = RenderType.OPTIX_GPUONLY,
                 Address = "192.168.1.123:15000"
             };
             DataContext = this;
@@ -44,39 +47,70 @@ namespace LogicReinc.BlendFarm.Windows
         {
             AvaloniaXamlLoader.Load(this);
             selectRenderType = this.Find<ComboBox>("selectRenderType");
+            inputNodeName = this.Find<TextBox>("inputNodeName");
+            saveStatus = this.Find<TextBlock>("saveStatus");
+            originalNodeName = Node.Name;
             selectRenderType.SelectedItem = Node.RenderType;
-            Width = 300;
-            Height = 300;
-            MinHeight = 300;
-            MaxHeight = 300;
-            MinWidth = 300;
-            MaxWidth = 300;
+            Width = 460;
+            Height = 520;
+            MinHeight = 520;
+            MinWidth = 460;
         }
 
 
         public async void Save()
         {
-            HistoryClient entry = BlendFarmSettings.Instance.PastClients?.FirstOrDefault(x => x.Key == Node.Name).Value;
-            if(entry == null)
+            string newName = inputNodeName.Text?.Trim();
+            if (string.IsNullOrEmpty(newName))
             {
-                if (!await YesNoWindow.Show(this, "Node not saved yet", "The node was not yet saved, would you like to save it?"))
-                    return;
-                else
-                {
-                    entry = new HistoryClient()
-                    {
-                        Name = Node.Name,
-                        Address = Node.Address,
-                        RenderType = Node.RenderType,
-                        Pass = Node.Pass
-                    };
-                    BlendFarmSettings.Instance.PastClients.Add(Node.Name, entry);
-                }
+                saveStatus.Text = "Name is required";
+                return;
             }
-            Node.RenderType = ((RenderType)selectRenderType.SelectedItem);
+
+            BlendFarmSettings.Instance.PastClients ??= new Dictionary<string, HistoryClient>();
+
+            if (newName != originalNodeName && BlendFarmSettings.Instance.PastClients.Any(x => x.Key == newName))
+            {
+                saveStatus.Text = "Name already exists";
+                return;
+            }
+
+            string entryKey = null;
+            HistoryClient entry = null;
+            var namedEntry = BlendFarmSettings.Instance.PastClients.FirstOrDefault(x => x.Key == originalNodeName);
+            if (namedEntry.Value != null)
+            {
+                entryKey = namedEntry.Key;
+                entry = namedEntry.Value;
+            }
+            else
+            {
+                var addressEntry = BlendFarmSettings.Instance.PastClients.FirstOrDefault(x => x.Value.Address == Node.Address);
+                entryKey = addressEntry.Key;
+                entry = addressEntry.Value;
+            }
+
+            if (entry == null)
+                entry = new HistoryClient();
+
+            if (!string.IsNullOrEmpty(entryKey))
+                BlendFarmSettings.Instance.PastClients.Remove(entryKey);
+
+            Node.Name = newName;
+            Node.RenderType = selectRenderType.SelectedItem is RenderType type ? type : RenderType.OPTIX_GPUONLY;
+
+            entry.Name = Node.Name;
+            entry.Address = Node.Address;
             entry.RenderType = Node.RenderType;
             entry.Pass = Node.Pass;
+            entry.Performance = Node.Performance;
+            BlendFarmSettings.Instance.PastClients[Node.Name] = entry;
             BlendFarmSettings.Instance.Save();
+
+            originalNodeName = Node.Name;
+            saveStatus.Text = "Saved";
+            await Task.Delay(650);
+            Close();
         }
 
         public static async Task Show(Window owner, RenderNode node)

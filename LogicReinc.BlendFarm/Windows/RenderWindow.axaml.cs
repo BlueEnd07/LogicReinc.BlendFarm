@@ -70,6 +70,7 @@ namespace LogicReinc.BlendFarm.Windows
 
         public bool UseAutomaticPerformance { get; set; } = true;
         public bool UseSyncCompression { get; set; } = false;
+        public RenderType NewNodeRenderType { get; set; } = RenderType.OPTIX_GPUONLY;
 
         public OpenBlenderProject CurrentProject { get; set; } = null;
 
@@ -100,6 +101,7 @@ namespace LogicReinc.BlendFarm.Windows
         //Options
         protected string[] DenoiserOptions { get; } = new string[] { "Inherit", "None", "NLM", "OPTIX", "OPENIMAGEDENOISE" };
         protected EngineType[] EngineOptions { get; } = (EngineType[])Enum.GetValues(typeof(EngineType));
+        public RenderType[] RenderTypes { get; } = (RenderType[])Enum.GetValues(typeof(RenderType));
 
         protected string[] ImageFormats { get; } = Client.ImageTypes.ImageFormats.Formats;
 
@@ -428,13 +430,13 @@ namespace LogicReinc.BlendFarm.Windows
                     return;
                 }
 
-                Manager.AddNode(InputClientName, InputClientAddress);
+                Manager.AddNode(InputClientName, InputClientAddress, NewNodeRenderType);
 
                 BlendFarmSettings.Instance.PastClients.Add(InputClientName, new BlendFarmSettings.HistoryClient()
                 {
                     Address = InputClientAddress,
                     Name = InputClientName,
-                    RenderType = RenderType.CPU
+                    RenderType = NewNodeRenderType
                 });
                 BlendFarmSettings.Instance.Save();
             }
@@ -1210,6 +1212,8 @@ namespace LogicReinc.BlendFarm.Windows
         private RenderManagerSettings GetSettingsFromUI(OpenBlenderProject proj = null)
         {
             proj = proj ?? CurrentProject;
+            int outputWidth = GetScaledRenderDimension(proj.RenderWidth, proj.RenderScale);
+            int outputHeight = GetScaledRenderDimension(proj.RenderHeight, proj.RenderScale);
             return new RenderManagerSettings()
             {
                 Frame = proj.FrameStart,
@@ -1217,10 +1221,10 @@ namespace LogicReinc.BlendFarm.Windows
                 Camera = proj.Camera,
                 Strategy = (RenderStrategy)_selectStrategy.SelectedItem,
                 Order = (TaskOrder)_selectOrder?.SelectedItem,
-                OutputHeight = proj.RenderHeight,
-                OutputWidth = proj.RenderWidth,
-                ChunkHeight = ((decimal)proj.ChunkSize / proj.RenderHeight),
-                ChunkWidth = ((decimal)proj.ChunkSize / proj.RenderWidth),
+                OutputHeight = outputHeight,
+                OutputWidth = outputWidth,
+                ChunkHeight = ((decimal)proj.ChunkSize / outputHeight),
+                ChunkWidth = ((decimal)proj.ChunkSize / outputWidth),
                 Samples = proj.Samples,
                 Engine = proj.Engine,
                 RenderFormat = proj.RenderFormat,
@@ -1229,6 +1233,16 @@ namespace LogicReinc.BlendFarm.Windows
                 BlenderUpdateBugWorkaround = proj.UseWorkaround,
                 UseAutoPerformance = UseAutomaticPerformance
             };
+        }
+
+        private static int GetScaledRenderDimension(int dimension, int scale)
+        {
+            if (dimension <= 0)
+                dimension = 1;
+            if (scale <= 0)
+                scale = 100;
+
+            return Math.Max(1, (int)Math.Round(dimension * (scale / 100.0)));
         }
 
         private void RenderOnFileChange(BlendFarmManager manager)

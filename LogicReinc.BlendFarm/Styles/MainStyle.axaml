@@ -1,6 +1,29 @@
-﻿<Styles xmlns="https://github.com/avaloniaui"
+<Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Style Selector="TextBlock">
-    <Setter Property="Foreground" Value="White"></Setter>
+    <Setter Property="Foreground" Value="{DynamicResource BlendFarmTextBrush}" />
+  </Style>
+  <Style Selector="Button">
+    <Setter Property="Background" Value="{DynamicResource BlendFarmButtonBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BlendFarmSoftBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource BlendFarmTextBrush}" />
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="{DynamicResource BlendFarmPanelBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BlendFarmSoftBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource BlendFarmTextBrush}" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="Background" Value="{DynamicResource BlendFarmPanelBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BlendFarmSoftBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource BlendFarmTextBrush}" />
+  </Style>
+  <Style Selector="NumericUpDown">
+    <Setter Property="Background" Value="{DynamicResource BlendFarmPanelBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BlendFarmSoftBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource BlendFarmTextBrush}" />
+  </Style>
+  <Style Selector="CheckBox">
+    <Setter Property="Foreground" Value="{DynamicResource BlendFarmTextBrush}" />
   </Style>
 </Styles>

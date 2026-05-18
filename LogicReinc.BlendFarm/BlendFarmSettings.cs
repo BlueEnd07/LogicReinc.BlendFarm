@@ -49,8 +49,8 @@ namespace LogicReinc.BlendFarm
 
 
         public bool Option_UseAssetsSync { get; set; }
-        public bool Option_ConnectLocal { get; set; }
-        public bool Option_ImportSettings { get; set; }
+        public bool Option_ConnectLocal { get; set; } = true;
+        public bool Option_ImportSettings { get; set; } = true;
 
 
         public void ApplyProjectSettings(string fileName, UIProjectSettings settings)
@@ -102,7 +102,7 @@ namespace LogicReinc.BlendFarm
             public string Name { get; set; }
             public string Address { get; set; }
 
-            public RenderType RenderType { get; set; } = RenderType.CPU;
+            public RenderType RenderType { get; set; } = RenderType.OPTIX_GPUONLY;
             public double Performance { get; set; }
             public string Pass { get; set; }
         }

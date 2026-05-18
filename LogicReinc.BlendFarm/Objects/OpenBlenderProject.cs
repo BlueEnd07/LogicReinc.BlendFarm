@@ -41,6 +41,7 @@ namespace LogicReinc.BlendFarm.Objects
         //Render Properties
         public int RenderWidth { get; set; } = 1280;
         public int RenderHeight { get; set; } = 720;
+        public int RenderScale { get; set; } = 100;
         public int ChunkSize { get; set; } = 256;
         public int Samples { get; set; } = 32;
         public string Denoiser { get; set; } = "Inherit";
@@ -143,6 +144,8 @@ namespace LogicReinc.BlendFarm.Objects
             FrameEnd = settings?.FrameEnd ?? 60;
             RenderHeight = settings?.RenderHeight ?? 1280;
             RenderWidth = settings?.RenderWidth ?? 720;
+            int renderScale = settings?.RenderScale ?? 100;
+            RenderScale = renderScale > 0 ? renderScale : 100;
             ChunkSize = settings?.ChunkSize ?? 256;
             Denoiser = settings?.Denoiser ?? "Inherit";
             UseWorkaround = settings?.UseWorkaround ?? true;
@@ -157,6 +160,7 @@ namespace LogicReinc.BlendFarm.Objects
                 FrameEnd = FrameEnd,
                 RenderHeight = RenderHeight,
                 RenderWidth = RenderWidth,
+                RenderScale = RenderScale,
                 ChunkSize = ChunkSize,
                 Denoiser = Denoiser,
                 UseWorkaround = UseWorkaround,
@@ -198,6 +202,7 @@ namespace LogicReinc.BlendFarm.Objects
             public int FrameEnd { get; set; }
             public int RenderHeight { get; set; }
             public int RenderWidth { get; set; }
+            public int RenderScale { get; set; }
             public int ChunkSize { get; set; }
             public int Samples { get; set; }
             public int FPS { get; set; }

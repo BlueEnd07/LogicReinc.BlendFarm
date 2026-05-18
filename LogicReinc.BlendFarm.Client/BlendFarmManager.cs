@@ -194,7 +194,7 @@ namespace LogicReinc.BlendFarm.Client
             return Nodes.FirstOrDefault(x => x.Address == address);
         }
 
-        public RenderNode AddNode(string name, string address, RenderType type = RenderType.CPU, string pass = null) => AddNode(new RenderNode() { Name = name, Address = address, RenderType = type, Pass = pass });
+        public RenderNode AddNode(string name, string address, RenderType type = RenderType.OPTIX_GPUONLY, string pass = null) => AddNode(new RenderNode() { Name = name, Address = address, RenderType = type, Pass = pass });
         public RenderNode AddNode(RenderNode node)
         {
             RenderNode existing = GetNodeByName(node.Name);
@@ -226,7 +226,7 @@ namespace LogicReinc.BlendFarm.Client
             if (existing != null)
                 return existing;
 
-            return AddNode(name, addressPort, RenderType.CPU);
+            return AddNode(name, addressPort, RenderType.OPTIX_GPUONLY);
         }
 
         public void RemoveNode(string name)

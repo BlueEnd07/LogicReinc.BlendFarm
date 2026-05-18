@@ -143,12 +143,10 @@ This may have to do with the port being in use. Note that to discover other pcs 
         private void InitializeComponent()
         {
             AvaloniaXamlLoader.Load(this);
-            Width = 600;
-            Height = 700;
-            MinHeight = 700;
-            MinWidth = 600;
-            MaxHeight = 700;
-            MaxWidth = 600;
+            Width = 760;
+            Height = 780;
+            MinHeight = 640;
+            MinWidth = 620;
 
             fileSelection = this.FindControl<TextBox>("fileSelect");
 
@@ -160,9 +158,9 @@ This may have to do with the port being in use. Note that to discover other pcs 
             importSettings = this.FindControl<CheckBox>("importSettings");
 
             useAssetSync.IsEnabled = false;
-            useAssetSync.IsChecked = BlendFarmSettings.Instance.Option_UseAssetsSync;
-            connectLocal.IsChecked = BlendFarmSettings.Instance.Option_ConnectLocal;
-            importSettings.IsChecked = BlendFarmSettings.Instance.Option_ImportSettings;
+            useAssetSync.IsChecked = false;
+            connectLocal.IsChecked = true;
+            importSettings.IsChecked = true;
             if(_noServer)
             {
                 connectLocal.IsChecked = false;
@@ -335,8 +333,9 @@ This may have to do with the port being in use. Note that to discover other pcs 
             //Setup manager
             _manager = new BlendFarmManager(path, version.Name, null, localPath);
 
-            if(!_noServer && !BlendFarmSettings.Instance.PastClients.Any(x=>x.Key == BlendFarmManager.LocalNodeName))
-                _manager.AddNode(BlendFarmManager.LocalNodeName, $"localhost:{LocalServer.ServerPort}", RenderType.CPU, ServerSettings.Instance.BasicSecurityPassword);
+            string localAddress = $"localhost:{LocalServer.ServerPort}";
+            if(!_noServer && !BlendFarmSettings.Instance.PastClients.Any(x=>x.Key == BlendFarmManager.LocalNodeName || x.Value.Address == localAddress))
+                _manager.AddNode(BlendFarmManager.LocalNodeName, localAddress, RenderType.OPTIX_GPUONLY, ServerSettings.Instance.BasicSecurityPassword);
 
             foreach (var pair in BlendFarmSettings.Instance.PastClients.ToList())
                 _manager.AddNode(pair.Key, pair.Value.Address, pair.Value.RenderType, pair.Value.Pass);

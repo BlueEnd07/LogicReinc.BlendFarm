@@ -1,43 +1,60 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="300"
+        mc:Ignorable="d" d:DesignWidth="460" d:DesignHeight="520"
         x:Class="LogicReinc.BlendFarm.Windows.DeviceSettingsWindow"
-        Title="DeviceSettingsWindow">
+        Title="Node Settings"
+        Background="{StaticResource BlendFarmWindowBrush}">
   <Window.Styles>
     <StyleInclude Source="avares://Avalonia.Themes.Default/Accents/BaseDark.xaml" />
   </Window.Styles>
-  <StackPanel Width="400" Height="400">
-    <TextBlock Text="{Binding Node.Name}" Margin="10,20,10,5" FontSize="20" HorizontalAlignment="Center" />
-    <TextBlock Text="{Binding Node.Address}" HorizontalAlignment="Center" />
 
-    <StackPanel>
-      <StackPanel Orientation="Horizontal" Margin="10,10,10,0">
-          <TextBlock Margin="5" Width="160" TextAlignment="Right" FontSize="15" Text="Cores:" HorizontalAlignment="Right" />
-          <TextBlock Margin="5" Width="100" FontSize="15" Text="{Binding Node.Cores}" />
+  <Border Margin="16" Padding="18" Background="{StaticResource BlendFarmSurfaceBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="8">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+      <StackPanel Grid.Row="0" Margin="0,0,0,16">
+        <TextBlock Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11">RENDER NODE</TextBlock>
+        <TextBlock Text="{Binding Node.Name}" FontSize="22" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
+        <TextBlock Text="{Binding Node.Address}" Foreground="{StaticResource BlendFarmMutedTextBrush}" TextTrimming="CharacterEllipsis" />
       </StackPanel>
-      <StackPanel Orientation="Horizontal" Margin="10,0,10,0">
-        <TextBlock Margin="5" Width="160" TextAlignment="Right" FontSize="15" Text="Auto-Performace:" HorizontalAlignment="Right" />
-        <TextBlock Margin="5" FontSize="15" Width="150" Text="{Binding Node.PerformanceScorePP}"></TextBlock>
-      </StackPanel>
-      <StackPanel Orientation="Horizontal" Margin="10,0,10,0">
-        <TextBlock Margin="5" Width="160" TextAlignment="Right" FontSize="15" Text="RenderType:" HorizontalAlignment="Right" />
-        <ComboBox x:Name="selectRenderType" Width="150" Margin="10,0,0,0" Items="{Binding RenderTypes}" FontSize="15"></ComboBox>
-      </StackPanel>
-      <StackPanel Orientation="Horizontal" Margin="10,0,10,0">
-        <TextBlock Margin="5" Width="160" TextAlignment="Right" FontSize="15" Text="Performance:" HorizontalAlignment="Right" ToolTip.Tip="Used when Auto-Performance disabled, use cores when zero or below" />
-        <NumericUpDown Margin="10,0,0,0" Width="150" FontSize="15" Value="{Binding Node.Performance}" Increment="0.1"></NumericUpDown>
-      </StackPanel>
-		<StackPanel Orientation="Horizontal" Margin="10,0,10,0">
-			<TextBlock Margin="5" Width="160" TextAlignment="Right" FontSize="15" Text="Password:" HorizontalAlignment="Right" ToolTip.Tip="Used for basic authentication, NOT recommended as it is not very secure" />
-			<TextBox Margin="10,0,0,0" Width="150"  FontSize="15" Text="{Binding Node.Pass}" PasswordChar="•"></TextBox>
-		</StackPanel>
-		<TextBlock Margin="10,0,0,0" Width="280" Foreground="Red" TextWrapping="Wrap" Text="Disclaimer: Password should not be your sole protection, it is not stored or transmitted securely"></TextBlock>
-		
-		
-      <Button Margin="0,20,0,0" FontSize="20" Command="{Binding Save}">Save</Button>
 
-    </StackPanel>
-  </StackPanel>
+      <Border Grid.Row="1" Background="{StaticResource BlendFarmPanelBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="120,*">
+          <TextBlock Grid.Row="0" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,8,12,8">Display Name</TextBlock>
+          <TextBox Grid.Row="0" Grid.Column="1" x:Name="inputNodeName" Text="{Binding Node.Name}" />
+
+          <TextBlock Grid.Row="1" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,8,12,8">Address</TextBlock>
+          <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Node.Address}" Margin="0,8,0,8" TextTrimming="CharacterEllipsis" />
+
+          <TextBlock Grid.Row="2" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,8,12,8">Render Type</TextBlock>
+          <ComboBox Grid.Row="2" Grid.Column="1" x:Name="selectRenderType" Items="{Binding RenderTypes}" />
+
+          <TextBlock Grid.Row="3" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,8,12,8" ToolTip.Tip="Used when automatic performance is disabled. Use 0 to fall back to detected cores.">Performance</TextBlock>
+          <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding Node.Performance}" Increment="0.1" />
+
+          <TextBlock Grid.Row="4" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,8,12,8" ToolTip.Tip="Used for basic authentication.">Password</TextBlock>
+          <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Node.Pass}" PasswordChar="*" />
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="2" Background="{StaticResource BlendFarmPanelBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+        <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="120,*">
+          <TextBlock Grid.Row="0" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,4,12,4">Cores</TextBlock>
+          <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Node.Cores}" Margin="0,4,0,4" />
+
+          <TextBlock Grid.Row="1" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,4,12,4">Auto Performance</TextBlock>
+          <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Node.PerformanceScorePP}" Margin="0,4,0,4" />
+
+          <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Foreground="#F87171" TextWrapping="Wrap" Margin="0,10,0,0">
+            Password is only basic authentication, so do not use an important password here.
+          </TextBlock>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,14,0,0">
+        <TextBlock Grid.Column="0" x:Name="saveStatus" Foreground="#12C979" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Width="150" Padding="10,9" Command="{Binding Save}" Background="{StaticResource BlendFarmAccentBrush}" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}">Save</Button>
+      </Grid>
+    </Grid>
+  </Border>
 </Window>

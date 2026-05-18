@@ -28,7 +28,7 @@ namespace LogicReinc.BlendFarm.Windows
                 Cores = 16,
                 ComputerName = "SomeDesktopName",
                 OS = "windows64",
-                RenderType = RenderType.CPU,
+                RenderType = RenderType.OPTIX_GPUONLY,
                 Address = "192.168.1.123:15000"
             };
             DataContext = this;
