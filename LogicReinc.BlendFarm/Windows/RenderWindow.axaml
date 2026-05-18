@@ -299,6 +299,10 @@
                               <TextBlock x:Name="lastRenderTime" Width="90" Margin="10">...</TextBlock>
                               <CheckBox IsChecked="{Binding CurrentProject.UseWorkaround}" ToolTip.Tip="Workaround for a Blender bug, once fixed, it may cause odd tile order, then disable this">Workaround</CheckBox>
                             </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                              <TextBlock Width="110" TextAlignment="Right" Margin="10">Estimated Remaining:</TextBlock>
+                              <TextBlock x:Name="estimatedRenderTime" Width="140" Margin="10">...</TextBlock>
+                            </StackPanel>
                           </StackPanel>
 							<StackPanel Orientation="Horizontal">
 								<Button Margin="10,0,1,2" Width="160" Command="{Binding ImportSettings}" Background="#400083" BorderBrush="#200041">

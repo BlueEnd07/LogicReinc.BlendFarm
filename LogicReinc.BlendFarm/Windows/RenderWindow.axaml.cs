@@ -117,6 +117,7 @@ namespace LogicReinc.BlendFarm.Windows
         private Image _image = null;
         private ProgressBar _imageProgress = null;
         private TextBlock _lastRenderTime = null;
+        private TextBlock _estimatedRenderTime = null;
         private ComboBox _selectStrategy = null;
         private ComboBox _selectOrder = null;
         private ComboBox _selectOutputType = null;
@@ -273,6 +274,7 @@ namespace LogicReinc.BlendFarm.Windows
             _image = this.Find<Image>("render");
             _imageProgress = this.Find<ProgressBar>("renderProgress");
             _lastRenderTime = this.Find<TextBlock>("lastRenderTime");
+            _estimatedRenderTime = this.Find<TextBlock>("estimatedRenderTime");
             _selectStrategy = this.Find<ComboBox>("selectStrategy");
             _selectOrder = this.Find<ComboBox>("selectOrder");
             _selectOutputType = this.Find<ComboBox>("selectOutputType");
@@ -294,6 +296,8 @@ namespace LogicReinc.BlendFarm.Windows
                     CurrentProject.LastImage = new System.Drawing.Bitmap(1, 1).ToAvaloniaBitmap();
                     RefreshCurrentProject();
                     _lastRenderTime.Text = "";
+                    if (_estimatedRenderTime != null)
+                        _estimatedRenderTime.Text = "";
                 }
             };
 
@@ -590,6 +594,45 @@ namespace LogicReinc.BlendFarm.Windows
             }
         }
 
+        private void ResetRenderTiming()
+        {
+            if (_lastRenderTime != null)
+                _lastRenderTime.Text = "0:00";
+            if (_estimatedRenderTime != null)
+                _estimatedRenderTime.Text = "Calculating...";
+        }
+
+        private void UpdateRenderTiming(Stopwatch watch, double progress)
+        {
+            if (_lastRenderTime != null)
+                _lastRenderTime.Text = FormatDuration(watch.Elapsed);
+            if (_estimatedRenderTime != null)
+                _estimatedRenderTime.Text = GetEstimatedRemainingText(watch.Elapsed, progress);
+        }
+
+        private static string GetEstimatedRemainingText(TimeSpan elapsed, double progress)
+        {
+            if (progress >= 1)
+                return "Done";
+            if (progress <= 0.001 || elapsed.TotalSeconds < 1)
+                return "Calculating...";
+
+            double remainingSeconds = elapsed.TotalSeconds * ((1 - progress) / progress);
+            if (double.IsNaN(remainingSeconds) || double.IsInfinity(remainingSeconds) || remainingSeconds < 0)
+                return "Calculating...";
+
+            return "~ " + FormatDuration(TimeSpan.FromSeconds(remainingSeconds));
+        }
+
+        private static string FormatDuration(TimeSpan value)
+        {
+            if (value.TotalDays >= 1)
+                return $"{(int)value.TotalDays}d {value.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture)}";
+            if (value.TotalHours >= 1)
+                return value.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture);
+            return value.ToString(@"m\:ss", CultureInfo.InvariantCulture);
+        }
+
         //Singular
         public async Task Render() => await Render(false, false);
         public async Task Render(bool noSync, bool noExcep = false)
@@ -604,6 +647,7 @@ namespace LogicReinc.BlendFarm.Windows
             {
                 this._imageProgress.IsVisible = true;
                 this._imageProgress.IsIndeterminate = true;
+                ResetRenderTiming();
             });
 
             //Check if any unsynced nodes
@@ -638,7 +682,7 @@ namespace LogicReinc.BlendFarm.Windows
                             if (CurrentProject == currentProject)
                                 RaisePropertyChanged(CurrentProjectProperty, null, CurrentProject);
 
-                            _lastRenderTime.Text = watch.Elapsed.ToString();
+                            UpdateRenderTiming(watch, currentProject.CurrentTask?.Progress ?? 0);
                         });
                     });
                     currentProject.SetRenderTask(task);
@@ -650,6 +694,7 @@ namespace LogicReinc.BlendFarm.Windows
                         {
                             this._imageProgress.IsIndeterminate = false;
                             this._imageProgress.Value = progress * 100;
+                            UpdateRenderTiming(watch, progress);
                         });
                     };
                     Dispatcher.UIThread.InvokeAsync(async () => {
@@ -674,7 +719,7 @@ namespace LogicReinc.BlendFarm.Windows
 
                             finalImage.Save("lastRender.png");
                         }
-                        _lastRenderTime.Text = watch.Elapsed.ToString();
+                        UpdateRenderTiming(watch, 1);
                         this._imageProgress.IsVisible = false;
                     });
                     watch.Stop();
@@ -682,6 +727,13 @@ namespace LogicReinc.BlendFarm.Windows
                 }
                 catch (Exception ex)
                 {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        this._imageProgress.IsVisible = false;
+                        if (_estimatedRenderTime != null)
+                            _estimatedRenderTime.Text = "Failed";
+                    });
+
                     if(!noExcep)
                         await Dispatcher.UIThread.InvokeAsync(async () =>
                         {
@@ -724,6 +776,13 @@ namespace LogicReinc.BlendFarm.Windows
                 return;
 
             _lastAnimationDirectory = outputDir;
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                this._imageProgress.IsVisible = true;
+                this._imageProgress.IsIndeterminate = true;
+                ResetRenderTiming();
+            });
 
             if (Manager.Nodes.Any(x => x.Connected && !x.IsSessionSynced(currentProject.SessionID)))
             {
@@ -778,7 +837,7 @@ namespace LogicReinc.BlendFarm.Windows
                             {
                                 _ = MessageWindow.Show(this, "GUI Exception", "An error occured trying to load animation Bitmap in GUI.\n(Animation frame should still be saved)");
                             }
-                            _lastRenderTime.Text = watch.Elapsed.ToString();
+                            UpdateRenderTiming(watch, currentProject.CurrentTask?.Progress ?? 0);
                         });
                     });
                     currentProject.SetRenderTask(rtask);
@@ -790,6 +849,7 @@ namespace LogicReinc.BlendFarm.Windows
                         {
                             this._imageProgress.IsIndeterminate = false;
                             this._imageProgress.Value = progress * 100;
+                            UpdateRenderTiming(watch, progress);
                         });
                     };
                     Dispatcher.UIThread.InvokeAsync(async () =>
@@ -801,6 +861,11 @@ namespace LogicReinc.BlendFarm.Windows
 
                     //Render
                     var success = await currentProject.CurrentTask.Render();
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        UpdateRenderTiming(watch, success ? 1 : currentProject.CurrentTask.Progress);
+                        this._imageProgress.IsVisible = false;
+                    });
                     if (success)
                         _ = MessageWindow.ShowOnUIThread(this, "Animation Rendered", $"Frames {currentProject.FrameStart} to {currentProject.FrameEnd} rendered.\nLocated at {outputDir}.");
 
@@ -809,6 +874,13 @@ namespace LogicReinc.BlendFarm.Windows
                 }
                 catch (Exception ex)
                 {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        this._imageProgress.IsVisible = false;
+                        if (_estimatedRenderTime != null)
+                            _estimatedRenderTime.Text = "Failed";
+                    });
+
                     await MessageWindow.ShowOnUIThread(this, "Failed Render", "Failed render due to:" + ex.Message);
                 }
                 finally
@@ -822,8 +894,16 @@ namespace LogicReinc.BlendFarm.Windows
 
         public async Task CancelRender()
         {
-            await CurrentProject.CurrentTask?.Cancel();
+            RenderTask task = CurrentProject.CurrentTask;
+            if (task != null)
+                await task.Cancel();
             CurrentProject.SetRenderTask(null);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                this._imageProgress.IsVisible = false;
+                if (_estimatedRenderTime != null)
+                    _estimatedRenderTime.Text = "Cancelled";
+            });
         }
 
         public void SaveAsDefault()
