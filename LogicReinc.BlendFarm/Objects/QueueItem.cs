@@ -131,10 +131,12 @@ namespace LogicReinc.BlendFarm.Objects
                         throw new ArgumentException("Missing frameformat for animation");
 
                     //Normal Render
-                    Task = manager.GetAnimationTask(Project.BlendFile, Settings.Frame, Settings.Frame + Frames, Settings, async (task, frame) =>
+                    int endFrame = Settings.Frame + Frames - 1;
+                    Task = manager.GetAnimationTask(Project.BlendFile, Settings.Frame, endFrame, Settings, async (task, frame) =>
                     {
 
-                        string filePath = Path.Combine(SaveTo, FrameFormat.Replace("#", task.Frame.ToString()));
+                        string fileName = Statics.FormatAnimationFrameFileName(FrameFormat, task.Frame, Settings.Frame, endFrame);
+                        string filePath = Path.Combine(SaveTo, fileName);
 
                         try
                         {

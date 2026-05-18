@@ -48,7 +48,7 @@ namespace LogicReinc.BlendFarm.Objects
         public EngineType Engine { get; set; } = EngineType.Cycles;
         public string RenderFormat { get; set; } = "PNG";
 
-        public bool UseWorkaround { get; set; } = true;
+        public bool UseWorkaround { get; set; } = false;
 
         public string Scene { get; set; } = "";
         public string Camera { get; set; } = "";
@@ -148,7 +148,7 @@ namespace LogicReinc.BlendFarm.Objects
             RenderScale = renderScale > 0 ? renderScale : 100;
             ChunkSize = settings?.ChunkSize ?? 256;
             Denoiser = settings?.Denoiser ?? "Inherit";
-            UseWorkaround = settings?.UseWorkaround ?? true;
+            UseWorkaround = settings?.UseWorkaround ?? false;
             FPS = settings?.FPS ?? 0;
             Samples = settings?.Samples ?? 32;
         }

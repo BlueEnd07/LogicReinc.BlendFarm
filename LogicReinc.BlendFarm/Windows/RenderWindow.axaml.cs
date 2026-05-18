@@ -120,14 +120,31 @@ namespace LogicReinc.BlendFarm.Windows
         private ProgressBar _imageProgress = null;
         private TextBlock _lastRenderTime = null;
         private TextBlock _estimatedRenderTime = null;
+        private Border _animationProgressPanel = null;
+        private TextBlock _animationFramesRendered = null;
+        private TextBlock _animationCurrentFrame = null;
+        private TextBlock _animationEstimatedRemaining = null;
+        private TextBlock _animationTimeline = null;
+        private ProgressBar _animationTimelineProgress = null;
+        private TextBlock _statsTotalSaved = null;
+        private TextBlock _statsFramesToday = null;
+        private TextBlock _statsFastestNode = null;
+        private TextBlock _statsAverageFrame = null;
         private ComboBox _selectStrategy = null;
         private ComboBox _selectOrder = null;
         private ComboBox _selectOutputType = null;
         private TextBox _inputAnimationFileFormat = null;
-        private ComboBox _scenesAvailableBox = null;
-        private AutoCompleteBox _scenesBox = null;
-        private ComboBox _camerasAvailableBox = null;
-        private AutoCompleteBox _camerasBox = null;
+        private ListBox _scenesAvailableList = null;
+        private TextBox _sceneTextBox = null;
+        private ListBox _camerasAvailableList = null;
+        private TextBox _cameraTextBox = null;
+        private bool _loadingMeta = false;
+
+        private DateTime _statsDate = DateTime.Today;
+        private int _framesRenderedToday = 0;
+        private TimeSpan _totalRenderTimeSaved = TimeSpan.Zero;
+        private TimeSpan _totalFrameRenderTime = TimeSpan.Zero;
+        private int _timedFrameCount = 0;
 
 
         //Debug data
@@ -209,10 +226,12 @@ namespace LogicReinc.BlendFarm.Windows
                 Manager.OnNodeAdded += (manager, node) => Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     Nodes.Add(node);
+                    UpdateRenderStats();
                 });
                 Manager.OnNodeRemoved += (manager, node) => Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     Nodes.Remove(node);
+                    UpdateRenderStats();
                 });
             }
             else 
@@ -227,37 +246,8 @@ namespace LogicReinc.BlendFarm.Windows
             };
             Manager?.StartFileWatch();
 
-            RenderNode localNode = Manager.Nodes.FirstOrDefault(x => x.Name == BlendFarmManager.LocalNodeName);
-            if(Options.ConnectLocal)
-            {
-                if (localNode == null)
-                    MessageWindow.Show(this, "No Local Node", "No local server is available..");
-                else
-                {
-                    bool didConnect = false;
-                    localNode.OnConnected += (node) =>
-                    {
-                        if (didConnect)
-                            return;
-                        didConnect = true;
-                        if(Options.ImportSettings)
-                            Task.Run(async () =>
-                            {
-                                await SyncAll();
-                                if (!localNode.IsSynced)
-                                    await MessageWindow.Show(this, "Failed to sync Local Node", "Required synced node for importing but failed..");
-                                else
-                                {
-                                    await ImportSettings();
-                                }
-                            });
-                    };
-                    localNode.ConnectAndPrepare(Version.Name);
-                }
-            }
-
-
             this.InitializeComponent();
+            _ = StartAutomaticNodeSetup();
         }
 
         private void InitializeComponent()
@@ -277,14 +267,25 @@ namespace LogicReinc.BlendFarm.Windows
             _imageProgress = this.Find<ProgressBar>("renderProgress");
             _lastRenderTime = this.Find<TextBlock>("lastRenderTime");
             _estimatedRenderTime = this.Find<TextBlock>("estimatedRenderTime");
+            _animationProgressPanel = this.Find<Border>("animationProgressPanel");
+            _animationFramesRendered = this.Find<TextBlock>("animationFramesRendered");
+            _animationCurrentFrame = this.Find<TextBlock>("animationCurrentFrame");
+            _animationEstimatedRemaining = this.Find<TextBlock>("animationEstimatedRemaining");
+            _animationTimeline = this.Find<TextBlock>("animationTimeline");
+            _animationTimelineProgress = this.Find<ProgressBar>("animationTimelineProgress");
+            _statsTotalSaved = this.Find<TextBlock>("statsTotalSaved");
+            _statsFramesToday = this.Find<TextBlock>("statsFramesToday");
+            _statsFastestNode = this.Find<TextBlock>("statsFastestNode");
+            _statsAverageFrame = this.Find<TextBlock>("statsAverageFrame");
             _selectStrategy = this.Find<ComboBox>("selectStrategy");
             _selectOrder = this.Find<ComboBox>("selectOrder");
             _selectOutputType = this.Find<ComboBox>("selectOutputType");
             _inputAnimationFileFormat = this.Find<TextBox>("inputAnimationFileFormat");
-            _scenesAvailableBox = this.Find<ComboBox>("availableScenesBox");
-            _scenesBox = this.Find<AutoCompleteBox>("sceneBox");
-            _camerasAvailableBox = this.Find<ComboBox>("availableCamerasBox");
-            _camerasBox = this.Find<AutoCompleteBox>("cameraBox");
+            _scenesAvailableList = this.Find<ListBox>("availableScenesList");
+            _sceneTextBox = this.Find<TextBox>("sceneTextBox");
+            _camerasAvailableList = this.Find<ListBox>("availableCamerasList");
+            _cameraTextBox = this.Find<TextBox>("cameraTextBox");
+            UpdateRenderStats();
 
             _selectStrategy.Items = Enum.GetValues(typeof(RenderStrategy));
             _selectStrategy.SelectedIndex = 0;
@@ -318,6 +319,44 @@ namespace LogicReinc.BlendFarm.Windows
                     }
                 }
             };
+
+            _scenesAvailableList.SelectionChanged += (s, e) =>
+            {
+                if (CurrentProject == null)
+                    return;
+
+                string scene = e.AddedItems?.OfType<object>().FirstOrDefault()?.ToString()
+                    ?? _scenesAvailableList.SelectedItem?.ToString();
+                if (scene != null)
+                    SetCurrentProjectScene(scene);
+            };
+
+            _camerasAvailableList.SelectionChanged += (s, e) =>
+            {
+                if (CurrentProject == null)
+                    return;
+
+                string camera = e.AddedItems?.OfType<object>().FirstOrDefault()?.ToString()
+                    ?? _camerasAvailableList.SelectedItem?.ToString();
+                if (camera != null)
+                    SetCurrentProjectCamera(camera);
+            };
+
+            _sceneTextBox.GetObservable(TextBox.TextProperty).Subscribe(text =>
+            {
+                if (CurrentProject == null)
+                    return;
+
+                SetCurrentProjectScene(text ?? "");
+            });
+
+            _cameraTextBox.GetObservable(TextBox.TextProperty).Subscribe(text =>
+            {
+                if (CurrentProject == null)
+                    return;
+
+                SetCurrentProjectCamera(text ?? "");
+            });
         }
 
 
@@ -395,7 +434,8 @@ namespace LogicReinc.BlendFarm.Windows
                 RaisePropertyChanged(CanTabScrollRightProperty, !CanTabScrollRight, CanTabScrollRight);
 
                 _image.Source = proj.LastImage;
-                _scenesAvailableBox.Items = CurrentProject.ScenesAvailable;
+                _scenesAvailableList.Items = CurrentProject.ScenesAvailable;
+                _camerasAvailableList.Items = CurrentProject.CamerasAvailable;
             });
         }
 
@@ -403,9 +443,48 @@ namespace LogicReinc.BlendFarm.Windows
         {
             try
             {
-                await Manager.ConnectAndPrepareAll();
+                await ConnectAndPrepareNodes();
             }
             catch { }
+        }
+
+        private async Task StartAutomaticNodeSetup()
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { });
+
+            if (Manager?.Nodes == null || !Manager.Nodes.Any())
+                return;
+
+            await ConnectAndPrepareNodes();
+
+            if (!Manager.Nodes.Any(x => x.Connected))
+                return;
+
+            await SyncAll();
+
+            if (Manager.Nodes.Any(x => x.Connected && x.IsSessionSynced(CurrentProject.SessionID)))
+                await ImportSettings();
+        }
+
+        private async Task ConnectAndPrepareNodes()
+        {
+            if (Manager?.Nodes == null)
+                return;
+
+            await Task.WhenAll(Manager.Nodes.ToList().Select(async node =>
+            {
+                try
+                {
+                    if (!node.Connected)
+                        await node.ConnectAndPrepare(Version.Name);
+                    else if (!node.IsPrepared)
+                        await node.PrepareVersion(Version.Name);
+                }
+                catch (Exception ex)
+                {
+                    node.UpdateException(ex.Message);
+                }
+            }));
         }
         public async Task SyncAll()
         {
@@ -415,7 +494,7 @@ namespace LogicReinc.BlendFarm.Windows
                 await Manager?.Sync(CurrentProject.BlendFile, CurrentProject.NetworkPathWindows, CurrentProject.NetworkPathLinux, CurrentProject.NetworkPathMacOS);
         }
 
-        public void AddNewNode()
+        public async void AddNewNode()
         {
             if (!string.IsNullOrEmpty(InputClientAddress) && !string.IsNullOrEmpty(InputClientName))
             {
@@ -430,7 +509,7 @@ namespace LogicReinc.BlendFarm.Windows
                     return;
                 }
 
-                Manager.AddNode(InputClientName, InputClientAddress, NewNodeRenderType);
+                RenderNode node = Manager.AddNode(InputClientName, InputClientAddress, NewNodeRenderType);
 
                 BlendFarmSettings.Instance.PastClients.Add(InputClientName, new BlendFarmSettings.HistoryClient()
                 {
@@ -439,6 +518,21 @@ namespace LogicReinc.BlendFarm.Windows
                     RenderType = NewNodeRenderType
                 });
                 BlendFarmSettings.Instance.Save();
+
+                try
+                {
+                    await node.ConnectAndPrepare(Version.Name);
+                    if (node.Connected)
+                    {
+                        await SyncAll();
+                        if (node.IsSessionSynced(CurrentProject.SessionID))
+                            await ImportSettings();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    node.UpdateException(ex.Message);
+                }
             }
             else
                 MessageWindow.Show(this, "No name or address", "A node requires both a name and an address");
@@ -472,7 +566,7 @@ namespace LogicReinc.BlendFarm.Windows
             if(!CurrentProject.ScenesAvailable.Contains(scene))
             {
                 CurrentProject.ScenesAvailable.Add(scene);
-                _scenesAvailableBox.Items = CurrentProject.ScenesAvailable;
+                _scenesAvailableList.Items = CurrentProject.ScenesAvailable;
             }
 
             BlendFarmSettings.Instance.ApplyProjectSettings(CurrentProject.BlendFile, CurrentProject.GetProjectSettings());
@@ -558,6 +652,7 @@ namespace LogicReinc.BlendFarm.Windows
 
         public void LoadMeta(OpenBlenderProject project, BlenderPeekResponse peekInfo)
         {
+            _loadingMeta = true;
             project.CamerasAvailable.Clear();
             project.CamerasAvailable.AddRange(peekInfo.Cameras);
             project.Camera = peekInfo.SelectedCamera;
@@ -566,21 +661,76 @@ namespace LogicReinc.BlendFarm.Windows
             project.Scene = peekInfo.SelectedScene;
             if (project.ScenesAvailable.Count > 0)
             {
-                _scenesAvailableBox.Items = project.ScenesAvailable;
-                _scenesBox.IsVisible = false;
-                _scenesAvailableBox.IsVisible = true;
+                _scenesAvailableList.Items = project.ScenesAvailable;
+                _scenesAvailableList.SelectedItem = project.Scene;
+                _scenesAvailableList.IsVisible = true;
             }
             if(project.CamerasAvailable.Count > 0)
             {
-                _camerasAvailableBox.Items = project.CamerasAvailable;
-                _camerasBox.IsVisible = false;
-                _camerasAvailableBox.IsVisible = true;
+                _camerasAvailableList.Items = project.CamerasAvailable;
+                _camerasAvailableList.SelectedItem = project.Camera;
+                _camerasAvailableList.IsVisible = true;
             }
             project.TriggerPropertyChange(
                 nameof(project.CamerasAvailable),
                 nameof(project.Camera),
                 nameof(project.ScenesAvailable),
                 nameof(project.Scene));
+            _loadingMeta = false;
+        }
+
+        private void SetCurrentProjectScene(string scene)
+        {
+            bool changed = CurrentProject.Scene != scene;
+            CurrentProject.Scene = scene;
+            if (_sceneTextBox != null && _sceneTextBox.Text != scene)
+                _sceneTextBox.Text = scene;
+            if (_scenesAvailableList != null && !Equals(_scenesAvailableList.SelectedItem?.ToString(), scene))
+                _scenesAvailableList.SelectedItem = scene;
+            Console.WriteLine($"UI scene selected: '{CurrentProject.Scene}'");
+
+            if (changed && !_loadingMeta)
+                ClearCurrentProjectCameraOverride();
+
+            CurrentProject.TriggerPropertyChange(nameof(CurrentProject.Scene));
+        }
+
+        public void SelectSceneFromList(string scene)
+        {
+            if (CurrentProject == null)
+                return;
+
+            SetCurrentProjectScene(scene ?? "");
+        }
+
+        private void SetCurrentProjectCamera(string camera)
+        {
+            CurrentProject.Camera = camera;
+            if (_cameraTextBox != null && _cameraTextBox.Text != camera)
+                _cameraTextBox.Text = camera;
+            if (_camerasAvailableList != null && !Equals(_camerasAvailableList.SelectedItem?.ToString(), camera))
+                _camerasAvailableList.SelectedItem = camera;
+            Console.WriteLine($"UI camera selected: '{CurrentProject.Camera}'");
+            CurrentProject.TriggerPropertyChange(nameof(CurrentProject.Camera));
+        }
+
+        public void SelectCameraFromList(string camera)
+        {
+            if (CurrentProject == null)
+                return;
+
+            SetCurrentProjectCamera(camera ?? "");
+        }
+
+        private void ClearCurrentProjectCameraOverride()
+        {
+            CurrentProject.Camera = "";
+            if (_camerasAvailableList != null)
+                _camerasAvailableList.SelectedItem = null;
+            if (_cameraTextBox != null)
+                _cameraTextBox.Text = "";
+            Console.WriteLine("UI camera override cleared after scene change");
+            CurrentProject.TriggerPropertyChange(nameof(CurrentProject.Camera));
         }
 
         public async Task Test()
@@ -635,8 +785,107 @@ namespace LogicReinc.BlendFarm.Windows
             return value.ToString(@"m\:ss", CultureInfo.InvariantCulture);
         }
 
+        private void ResetAnimationProgress(int startFrame, int endFrame)
+        {
+            if (_animationProgressPanel != null)
+                _animationProgressPanel.IsVisible = true;
+            UpdateAnimationProgress(TimeSpan.Zero, startFrame, endFrame, 0, startFrame);
+        }
+
+        private void UpdateAnimationProgress(TimeSpan elapsed, int startFrame, int endFrame, int completedFrames, int currentFrame)
+        {
+            int totalFrames = Math.Max(1, endFrame - startFrame + 1);
+            completedFrames = Math.Max(0, Math.Min(completedFrames, totalFrames));
+            currentFrame = Math.Max(startFrame, Math.Min(currentFrame, endFrame));
+            double progress = (double)completedFrames / totalFrames;
+
+            if (_animationFramesRendered != null)
+                _animationFramesRendered.Text = $"{completedFrames} / {totalFrames}";
+            if (_animationCurrentFrame != null)
+                _animationCurrentFrame.Text = completedFrames >= totalFrames ? "Done" : currentFrame.ToString(CultureInfo.InvariantCulture);
+            if (_animationEstimatedRemaining != null)
+                _animationEstimatedRemaining.Text = GetEstimatedRemainingText(elapsed, progress);
+            if (_animationTimelineProgress != null)
+                _animationTimelineProgress.Value = progress * 100;
+            if (_animationTimeline != null)
+                _animationTimeline.Text = BuildFrameTimeline(startFrame, endFrame, currentFrame, progress);
+        }
+
+        private static string BuildFrameTimeline(int startFrame, int endFrame, int currentFrame, double progress)
+        {
+            int slots = 22;
+            int marker = Math.Max(0, Math.Min(slots - 1, (int)Math.Round(progress * (slots - 1))));
+            char[] line = Enumerable.Repeat('-', slots).ToArray();
+            line[marker] = 'o';
+            return $"{startFrame:000} {new string(line)} {endFrame:000}";
+        }
+
+        private void RecordRenderedFrames(int frames, TimeSpan elapsed)
+        {
+            if (DateTime.Today != _statsDate)
+            {
+                _statsDate = DateTime.Today;
+                _framesRenderedToday = 0;
+            }
+
+            if (frames <= 0)
+                return;
+
+            _framesRenderedToday += frames;
+            _totalFrameRenderTime += elapsed;
+            _timedFrameCount += frames;
+            RecordEstimatedTimeSaved(elapsed);
+            UpdateRenderStats();
+        }
+
+        private void RecordEstimatedTimeSaved(TimeSpan elapsed)
+        {
+            int activeNodes = Manager?.Nodes?.Count(x => x.Connected) ?? 1;
+            if (activeNodes > 1)
+                _totalRenderTimeSaved += TimeSpan.FromSeconds(elapsed.TotalSeconds * (activeNodes - 1));
+        }
+
+        private void UpdateRenderStats()
+        {
+            if (DateTime.Today != _statsDate)
+            {
+                _statsDate = DateTime.Today;
+                _framesRenderedToday = 0;
+            }
+
+            if (_statsTotalSaved != null)
+                _statsTotalSaved.Text = FormatDuration(_totalRenderTimeSaved);
+            if (_statsFramesToday != null)
+                _statsFramesToday.Text = _framesRenderedToday.ToString(CultureInfo.InvariantCulture);
+            if (_statsFastestNode != null)
+            {
+                RenderNode fastest = Manager?.Nodes?
+                    .Where(x => x.PerformanceScorePP > 0)
+                    .OrderByDescending(x => x.PerformanceScorePP)
+                    .FirstOrDefault();
+                _statsFastestNode.Text = fastest?.Name ?? "--";
+            }
+            if (_statsAverageFrame != null)
+                _statsAverageFrame.Text = _timedFrameCount > 0
+                    ? FormatDuration(TimeSpan.FromSeconds(_totalFrameRenderTime.TotalSeconds / _timedFrameCount))
+                    : "--";
+        }
+
         //Singular
         public async Task Render() => await Render(false, false);
+        private async Task SyncProjectBeforeRender(OpenBlenderProject project)
+        {
+            if (project == null || Manager == null)
+                return;
+
+            Console.WriteLine($"Syncing project before render: '{project.Name}' scene='{project.Scene}' camera='{project.Camera}'");
+
+            if (!project.UseNetworkedPath)
+                await Manager.Sync(project.BlendFile, UseSyncCompression);
+            else
+                await Manager.Sync(project.BlendFile, project.NetworkPathWindows, project.NetworkPathLinux, project.NetworkPathMacOS);
+        }
+
         public async Task Render(bool noSync, bool noExcep = false)
         {
             OpenBlenderProject currentProject = CurrentProject;
@@ -652,17 +901,10 @@ namespace LogicReinc.BlendFarm.Windows
                 ResetRenderTiming();
             });
 
-            //Check if any unsynced nodes
-            if(!noSync && Manager.Nodes.Any(x=> x.Connected && !x.IsSessionSynced(currentProject.SessionID)))//!x.IsSynced))
-            {
-                if (await YesNoNeverWindow.Show(this, "Unsynced nodes", "You have nodes that are not yet synced, would you like to sync them to use for rendering?", "syncBeforeRendering"))
-                {
-                    if (!CurrentProject.UseNetworkedPath)
-                        await Manager?.Sync(CurrentProject.BlendFile, UseSyncCompression);
-                    else
-                        await Manager?.Sync(CurrentProject.BlendFile, CurrentProject.NetworkPathWindows, CurrentProject.NetworkPathLinux, CurrentProject.NetworkPathMacOS);
-                }
-            }
+            if (!noSync)
+                await SyncProjectBeforeRender(currentProject);
+
+            RenderManagerSettings settings = GetSettingsFromUI(currentProject);
 
             //Start rendering thread
             await Task.Run(async () =>
@@ -675,7 +917,7 @@ namespace LogicReinc.BlendFarm.Windows
 
                     //Create Task
 
-                    RenderTask task = Manager.GetImageTask(CurrentProject.BlendFile, GetSettingsFromUI(), async (task, updated) =>
+                    RenderTask task = Manager.GetImageTask(currentProject.BlendFile, settings, async (task, updated) =>
                     {
                         //Apply image to canvas
                         await Dispatcher.UIThread.InvokeAsync(() =>
@@ -722,6 +964,7 @@ namespace LogicReinc.BlendFarm.Windows
                             finalImage.Save("lastRender.png");
                         }
                         UpdateRenderTiming(watch, 1);
+                        RecordRenderedFrames(1, watch.Elapsed);
                         this._imageProgress.IsVisible = false;
                     });
                     watch.Stop();
@@ -734,6 +977,8 @@ namespace LogicReinc.BlendFarm.Windows
                         this._imageProgress.IsVisible = false;
                         if (_estimatedRenderTime != null)
                             _estimatedRenderTime.Text = "Failed";
+                        if (_animationEstimatedRemaining != null && _animationProgressPanel?.IsVisible == true)
+                            _animationEstimatedRemaining.Text = "Failed";
                     });
 
                     if(!noExcep)
@@ -784,18 +1029,12 @@ namespace LogicReinc.BlendFarm.Windows
                 this._imageProgress.IsVisible = true;
                 this._imageProgress.IsIndeterminate = true;
                 ResetRenderTiming();
+                ResetAnimationProgress(currentProject.FrameStart, currentProject.FrameEnd);
             });
 
-            if (Manager.Nodes.Any(x => x.Connected && !x.IsSessionSynced(currentProject.SessionID)))
-            {
-                if (await YesNoNeverWindow.Show(this, "Unsynced nodes", "You have nodes that are not yet synced, would you like to sync them to use for rendering?", "syncBeforeRendering"))
-                {
-                    if (!currentProject.UseNetworkedPath)
-                        await Manager.Sync(currentProject.BlendFile, UseSyncCompression);
-                    else
-                        await Manager.Sync(currentProject.BlendFile, currentProject.NetworkPathWindows, currentProject.NetworkPathLinux, currentProject.NetworkPathMacOS);
-                }
-            }
+            await SyncProjectBeforeRender(currentProject);
+
+            RenderManagerSettings settings = GetSettingsFromUI(currentProject);
 
             await Task.Run(async () =>
             {
@@ -803,12 +1042,22 @@ namespace LogicReinc.BlendFarm.Windows
                 {
                     Stopwatch watch = new Stopwatch();
                     watch.Start();
+                    int completedFrames = 0;
+                    int totalFrames = Math.Max(1, currentProject.FrameEnd - currentProject.FrameStart + 1);
+                    DateTime lastFrameFinishedAt = DateTime.UtcNow;
 
                     
                     //Create Task
-                    RenderTask rtask = Manager.GetAnimationTask(currentProject.BlendFile, currentProject.FrameStart, currentProject.FrameEnd, GetSettingsFromUI(), async (task, frame) =>
+                    RenderTask rtask = Manager.GetAnimationTask(currentProject.BlendFile, currentProject.FrameStart, currentProject.FrameEnd, settings, async (task, frame) =>
                     {
-                        string filePath = Path.Combine(outputDir, animationFileFormat.Replace("#", task.Frame.ToString()));
+                        int renderedFrame = task.Frame;
+                        int renderedCount = Interlocked.Increment(ref completedFrames);
+                        DateTime now = DateTime.UtcNow;
+                        TimeSpan frameDuration = now - lastFrameFinishedAt;
+                        lastFrameFinishedAt = now;
+
+                        string fileName = Statics.FormatAnimationFrameFileName(animationFileFormat, task.Frame, currentProject.FrameStart, currentProject.FrameEnd);
+                        string filePath = Path.Combine(outputDir, fileName);
 
                         try
                         {
@@ -839,7 +1088,10 @@ namespace LogicReinc.BlendFarm.Windows
                             {
                                 _ = MessageWindow.Show(this, "GUI Exception", "An error occured trying to load animation Bitmap in GUI.\n(Animation frame should still be saved)");
                             }
-                            UpdateRenderTiming(watch, currentProject.CurrentTask?.Progress ?? 0);
+                            double progress = currentProject.CurrentTask?.Progress ?? ((double)renderedCount / totalFrames);
+                            UpdateRenderTiming(watch, progress);
+                            UpdateAnimationProgress(watch.Elapsed, currentProject.FrameStart, currentProject.FrameEnd, renderedCount, renderedFrame + 1);
+                            RecordRenderedFrames(1, frameDuration);
                         });
                     });
                     currentProject.SetRenderTask(rtask);
@@ -852,6 +1104,7 @@ namespace LogicReinc.BlendFarm.Windows
                             this._imageProgress.IsIndeterminate = false;
                             this._imageProgress.Value = progress * 100;
                             UpdateRenderTiming(watch, progress);
+                            UpdateAnimationProgress(watch.Elapsed, currentProject.FrameStart, currentProject.FrameEnd, completedFrames, currentProject.FrameStart + completedFrames);
                         });
                     };
                     Dispatcher.UIThread.InvokeAsync(async () =>
@@ -866,6 +1119,7 @@ namespace LogicReinc.BlendFarm.Windows
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         UpdateRenderTiming(watch, success ? 1 : currentProject.CurrentTask.Progress);
+                        UpdateAnimationProgress(watch.Elapsed, currentProject.FrameStart, currentProject.FrameEnd, completedFrames, success ? currentProject.FrameEnd : currentProject.FrameStart + completedFrames);
                         this._imageProgress.IsVisible = false;
                     });
                     if (success)
@@ -881,6 +1135,8 @@ namespace LogicReinc.BlendFarm.Windows
                         this._imageProgress.IsVisible = false;
                         if (_estimatedRenderTime != null)
                             _estimatedRenderTime.Text = "Failed";
+                        if (_animationEstimatedRemaining != null && _animationProgressPanel?.IsVisible == true)
+                            _animationEstimatedRemaining.Text = "Failed";
                     });
 
                     await MessageWindow.ShowOnUIThread(this, "Failed Render", "Failed render due to:" + ex.Message);
@@ -905,6 +1161,8 @@ namespace LogicReinc.BlendFarm.Windows
                 this._imageProgress.IsVisible = false;
                 if (_estimatedRenderTime != null)
                     _estimatedRenderTime.Text = "Cancelled";
+                if (_animationEstimatedRemaining != null && _animationProgressPanel?.IsVisible == true)
+                    _animationEstimatedRemaining.Text = "Cancelled";
             });
         }
 
@@ -1212,9 +1470,11 @@ namespace LogicReinc.BlendFarm.Windows
         private RenderManagerSettings GetSettingsFromUI(OpenBlenderProject proj = null)
         {
             proj = proj ?? CurrentProject;
+            SyncSceneCameraFromInputs(proj);
+
             int outputWidth = GetScaledRenderDimension(proj.RenderWidth, proj.RenderScale);
             int outputHeight = GetScaledRenderDimension(proj.RenderHeight, proj.RenderScale);
-            return new RenderManagerSettings()
+            RenderManagerSettings settings = new RenderManagerSettings()
             {
                 Frame = proj.FrameStart,
                 Scene = proj.Scene,
@@ -1233,6 +1493,33 @@ namespace LogicReinc.BlendFarm.Windows
                 BlenderUpdateBugWorkaround = proj.UseWorkaround,
                 UseAutoPerformance = UseAutomaticPerformance
             };
+            Console.WriteLine($"Render settings payload scene='{settings.Scene}', camera='{settings.Camera}'");
+            return settings;
+        }
+
+        private void SyncSceneCameraFromInputs(OpenBlenderProject proj)
+        {
+            if (proj == null || proj != CurrentProject)
+                return;
+            if (!Dispatcher.UIThread.CheckAccess())
+                return;
+
+            string scene = null;
+            if (_sceneTextBox != null)
+                scene = _sceneTextBox.Text;
+            else if (_scenesAvailableList?.SelectedItem != null)
+                scene = _scenesAvailableList.SelectedItem?.ToString();
+
+            string camera = null;
+            if (_cameraTextBox != null)
+                camera = _cameraTextBox.Text;
+            else if (_camerasAvailableList?.SelectedItem != null)
+                camera = _camerasAvailableList.SelectedItem?.ToString();
+
+            if (scene != null)
+                proj.Scene = scene;
+            if (camera != null)
+                proj.Camera = camera;
         }
 
         private static int GetScaledRenderDimension(int dimension, int scale)

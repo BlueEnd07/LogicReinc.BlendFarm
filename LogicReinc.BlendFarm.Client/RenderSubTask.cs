@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace LogicReinc.BlendFarm.Client
 {
@@ -47,7 +48,7 @@ namespace LogicReinc.BlendFarm.Client
             long totalPixels = (long)((Parent.Settings.OutputWidth * (X2 - X)) * (Parent.Settings.OutputHeight * (Y2 - Y)));
             Value = ((double)totalPixels) / (Parent.Settings.OutputWidth * Parent.Settings.OutputHeight);
 
-            Crop = Parent.Settings.BlenderUpdateBugWorkaround;
+            Crop = !(Parent is AnimationTask);
         }
 
         /// <summary>
@@ -98,6 +99,8 @@ namespace LogicReinc.BlendFarm.Client
         /// </summary>
         public RenderPacketModel ToRenderPacketModel()
         {
+            bool useWorkaround = Parent.Settings.BlenderUpdateBugWorkaround && IsLegacyBlenderVersion(Parent.Version);
+
             return new RenderPacketModel()
             {
                 X = X,
@@ -114,10 +117,22 @@ namespace LogicReinc.BlendFarm.Client
                 Denoiser = Parent.Settings.Denoiser,
                 TaskID = ID,
                 Engine = Parent.Settings.Engine,
-                Workaround = Parent.Settings.BlenderUpdateBugWorkaround,
-                Crop = Crop || Parent.Settings.BlenderUpdateBugWorkaround,
+                Workaround = useWorkaround,
+                Crop = (Parent is AnimationTask) ? false : true,
                 RenderFormat = (Parent is AnimationTask) ? Parent.Settings.RenderFormat : ""
             };
+        }
+
+        private static bool IsLegacyBlenderVersion(string version)
+        {
+            if (string.IsNullOrEmpty(version))
+                return false;
+
+            Match match = Regex.Match(version, @"(\d+)(?:\.(\d+))?");
+            if (!match.Success || !int.TryParse(match.Groups[1].Value, out int major))
+                return false;
+
+            return major < 3;
         }
     }
 }

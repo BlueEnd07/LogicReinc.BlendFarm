@@ -94,9 +94,23 @@ def renderWithSettings(renderSettings, id, path):
             scen = "";
         if(scen != ""):
             print("Rendering specified scene " + scen + "\n");
-            scn = bpy.data.scenes[scen];
-            if(scn is None):
+            selectedScene = bpy.data.scenes.get(scen);
+            if(selectedScene is None):
                 raise Exception("Unknown Scene :" + scen);
+            scn = selectedScene;
+            if(bpy.context.window is not None):
+                bpy.context.window.scene = scn;
+            bpy.context.view_layer.update();
+        else:
+            scen = scn.name;
+
+        print("Using scene " + scn.name + "\n");
+
+        renderFormat = renderSettings["RenderFormat"];
+        if (not renderFormat):
+            scn.render.image_settings.file_format = "PNG";
+        else:
+            scn.render.image_settings.file_format = renderFormat;
 
 
         # Parse Parameters
@@ -126,8 +140,13 @@ def renderWithSettings(renderSettings, id, path):
 
         #Set Camera
         camera = renderSettings["Camera"];
-        if(camera != None and camera != "" and bpy.data.objects[camera]):
-            scn.camera = bpy.data.objects[camera];
+        if(camera != None and camera != ""):
+            cameraObj = scn.objects.get(camera) or bpy.data.objects.get(camera);
+            if(cameraObj is None):
+                raise Exception("Unknown Camera :" + camera);
+            if(cameraObj.type != "CAMERA"):
+                raise Exception("Object is not a Camera :" + camera);
+            scn.camera = cameraObj;
 
         #Set Resolution
         scn.render.resolution_x = int(renderSettings["Width"]);
@@ -137,7 +156,7 @@ def renderWithSettings(renderSettings, id, path):
         #Set Samples
         scn.cycles.samples = int(renderSettings["Samples"]);
 
-        scn.render.use_persistent_data = True;
+        scn.render.use_persistent_data = False;
 
         #Render Device
         renderType = int(renderSettings["ComputeUnit"]);
@@ -230,6 +249,8 @@ def renderWithSettings(renderSettings, id, path):
 
         # Set frame
         scn.frame_set(frame)
+        bpy.context.view_layer.update()
+        bpy.context.evaluated_depsgraph_get().update()
         
         # Set Output
         scn.render.filepath = path;
@@ -238,7 +259,11 @@ def renderWithSettings(renderSettings, id, path):
         # Render
         print("RENDER_START:" + str(id) + "\n", flush=True);
 
-        bpy.ops.render.render(animation=False, write_still=True, use_viewport=False, layer="", scene = scen)
+        if(hasattr(bpy.context, "temp_override")):
+            with bpy.context.temp_override(scene=scn, view_layer=scn.view_layers[0]):
+                bpy.ops.render.render(animation=False, write_still=True, use_viewport=False)
+        else:
+            bpy.ops.render.render(animation=False, write_still=True, use_viewport=False, layer="", scene=scn.name)
 
         print("SUCCESS:" + str(id) + "\n", flush=True);
 
@@ -268,12 +293,6 @@ def runBatch(jsonPath):
         current = renderSettingsBatch[i];
         renderSettings = current;
         
-        renderFormat = renderSettings["RenderFormat"];
-        if (not renderFormat):
-            scn.render.image_settings.file_format = "PNG";
-        else:
-            scn.render.image_settings.file_format = renderFormat;
-
         output = renderSettings["Output"];
         id = renderSettings["TaskID"];
 

@@ -125,6 +125,30 @@
               </StackPanel>
             </Border>
 
+            <Border Background="{StaticResource BlendFarmPanelBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,0,0,10">
+              <StackPanel>
+                <TextBlock Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" Margin="0,0,0,10">RENDER FARM STATS</TextBlock>
+                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
+                  <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,10">
+                    <TextBlock Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="12">Total Time Saved</TextBlock>
+                    <TextBlock x:Name="statsTotalSaved" FontSize="18" FontWeight="Bold">0:00</TextBlock>
+                  </StackPanel>
+                  <StackPanel Grid.Row="0" Grid.Column="1" Margin="8,0,0,10">
+                    <TextBlock Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="12">Frames Today</TextBlock>
+                    <TextBlock x:Name="statsFramesToday" FontSize="18" FontWeight="Bold">0</TextBlock>
+                  </StackPanel>
+                  <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,0">
+                    <TextBlock Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="12">Fastest Node</TextBlock>
+                    <TextBlock x:Name="statsFastestNode" FontSize="15" TextTrimming="CharacterEllipsis">--</TextBlock>
+                  </StackPanel>
+                  <StackPanel Grid.Row="1" Grid.Column="1" Margin="8,0,0,0">
+                    <TextBlock Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="12">Avg Time / Frame</TextBlock>
+                    <TextBlock x:Name="statsAverageFrame" FontSize="15">--</TextBlock>
+                  </StackPanel>
+                </Grid>
+              </StackPanel>
+            </Border>
+
             <StackPanel Margin="20,20,20,5" Orientation="Horizontal" IsVisible="False">
               <Button Padding="0" BorderThickness="0" Background="{StaticResource BlendFarmButtonBrush}" Command="{Binding Github}">
                 <Image Source="/Icons/github.png" Width="150" Height="25"></Image>
@@ -227,7 +251,7 @@
                                 <Button Background="Transparent" BorderThickness="0" Padding="4" IsEnabled="{Binding Activity, Converter={x:Static StringConverters.IsNullOrEmpty}}" IsVisible="{Binding !Connected}" Command="{Binding ConnectAndPrepare}" CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=DataContext.Version.Name}">
                                   <Image Source="/Icons/radioOff.png" Height="20" Width="20" />
                                 </Button>
-                                <Button Background="Transparent" BorderThickness="0" Padding="4" IsVisible="{Binding !Connected}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=DeleteNode}" CommandParameter="{Binding .}">
+                                <Button Background="Transparent" BorderThickness="0" Padding="4" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=DeleteNode}" CommandParameter="{Binding .}">
                                   <Image Source="/Icons/delete.png" Height="20" Width="20" />
                                 </Button>
                                 <Button Background="Transparent" BorderThickness="0" Padding="4" IsVisible="{Binding Connected}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=TerminalNode}" CommandParameter="{Binding .}">
@@ -251,32 +275,32 @@
                   </Border>
 
 
-                    <Border Background="{StaticResource BlendFarmPanelBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,0,0,10">
-                    <StackPanel>
-                      <TextBlock Foreground="#A6A6A6" FontSize="11" Margin="0,0,0,10">ADD NEW NODE</TextBlock>
+                    <Border Background="{StaticResource BlendFarmPanelBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="0" Margin="0,0,0,10">
+                      <Expander Header="Add New Node" IsExpanded="False">
+                        <StackPanel Margin="14">
+                          <Grid ColumnDefinitions="2*,3*">
+                            <TextBox Grid.Column="0" Margin="0,0,6,0" Watermark="Name" x:Name="inputClientName" Text="{Binding InputClientName}"></TextBox>
+                            <TextBox Grid.Column="1" Margin="6,0,0,0" Watermark="Address (eg. 192.168.1.53:1234)" x:Name="inputClientAddress" Text="{Binding InputClientAddress}"></TextBox>
+                          </Grid>
 
-                      <Grid ColumnDefinitions="2*,3*">
-                        <TextBox Grid.Column="0" Margin="0,0,6,0" Watermark="Name" x:Name="inputClientName" Text="{Binding InputClientName}"></TextBox>
-                        <TextBox Grid.Column="1" Margin="6,0,0,0" Watermark="Address (eg. 192.168.1.53:1234)" x:Name="inputClientAddress" Text="{Binding InputClientAddress}"></TextBox>
-                      </Grid>
+                          <Grid ColumnDefinitions="110,*" Margin="0,10,0,0">
+                            <TextBlock Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" VerticalAlignment="Center">Render Type</TextBlock>
+                            <ComboBox Grid.Column="1" Items="{Binding RenderTypes}" SelectedItem="{Binding NewNodeRenderType}" />
+                          </Grid>
 
-                      <Grid ColumnDefinitions="110,*" Margin="0,10,0,0">
-                        <TextBlock Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" VerticalAlignment="Center">Render Type</TextBlock>
-                        <ComboBox Grid.Column="1" Items="{Binding RenderTypes}" SelectedItem="{Binding NewNodeRenderType}" />
-                      </Grid>
-
-                      <Button Margin="0,10,0,0" Padding="10,9" Background="{StaticResource BlendFarmAccentBrush}" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}"
-                          Command="{Binding AddNewNode}"
-                          IsEnabled="{Binding ElementName=inputClientAddress, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">Connect Node</Button>
-                    <Grid ColumnDefinitions="*,*" Margin="0,12,0,0">
-                      <CheckBox Grid.Column="0" Foreground="#D9DEF0" IsChecked="{Binding UseAutomaticPerformance}">
-                        Use Automatic Performance
-                      </CheckBox>
-                      <CheckBox Grid.Column="1" Foreground="#D9DEF0" IsChecked="{Binding UseSyncCompression}" Margin="10,0,0,0">
-                        Use Sync Compression
-                      </CheckBox>
-                    </Grid>
-                    </StackPanel>
+                          <Button Margin="0,10,0,0" Padding="10,9" Background="{StaticResource BlendFarmAccentBrush}" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}"
+                              Command="{Binding AddNewNode}"
+                              IsEnabled="{Binding ElementName=inputClientAddress, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">Connect Node</Button>
+                          <Grid ColumnDefinitions="*,*" Margin="0,12,0,0">
+                            <CheckBox Grid.Column="0" Foreground="#D9DEF0" IsChecked="{Binding UseAutomaticPerformance}">
+                              Use Automatic Performance
+                            </CheckBox>
+                            <CheckBox Grid.Column="1" Foreground="#D9DEF0" IsChecked="{Binding UseSyncCompression}" Margin="10,0,0,0">
+                              Use Sync Compression
+                            </CheckBox>
+                          </Grid>
+                        </StackPanel>
+                      </Expander>
                     </Border>
                   <Border Background="{StaticResource BlendFarmPanelBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="0" Margin="0,0,0,10">
                   <StackPanel DockPanel.Dock="Bottom">
@@ -308,15 +332,35 @@
                               <TextBlock Grid.Column="0" Foreground="#B8B8B8" TextAlignment="Left" Margin="0,8,8,8" ToolTip.Tip="Denoiser to use, Inherit means the one selected in Blendfile.">Denoiser</TextBlock>
                               <ComboBox Grid.Column="1" SelectedIndex="0" Items="{Binding DenoiserOptions}" SelectedItem="{Binding CurrentProject.Denoiser}"></ComboBox>
                             </Grid>
-                            <Grid ColumnDefinitions="70,*" Margin="0,0,0,8">
-                              <TextBlock Grid.Column="0" Foreground="#B8B8B8" TextAlignment="Left" Margin="0,8,8,8">Scene</TextBlock>
-                              <AutoCompleteBox Grid.Column="1" Height="30" Margin="0" Watermark="Inherit/Main" Text="{Binding CurrentProject.Scene}" x:Name="sceneBox" />
-						      <ComboBox Grid.Column="1" IsVisible="false" SelectedItem="{Binding CurrentProject.Scene}" x:Name="availableScenesBox"></ComboBox>
+                            <Grid ColumnDefinitions="70,*" RowDefinitions="Auto,Auto" Margin="0,0,0,8">
+                              <TextBlock Grid.RowSpan="2" Grid.Column="0" Foreground="#B8B8B8" TextAlignment="Left" Margin="0,8,8,8">Scene</TextBlock>
+                              <TextBox Grid.Column="1" Height="30" Margin="0" Watermark="Inherit/Main" Text="{Binding CurrentProject.Scene, Mode=TwoWay}" x:Name="sceneTextBox" />
+						      <ListBox Grid.Row="1" Grid.Column="1" IsVisible="false" MaxHeight="95" Margin="0,4,0,0" Items="{Binding CurrentProject.ScenesAvailable}" x:Name="availableScenesList">
+                                <ListBox.ItemTemplate>
+                                  <DataTemplate>
+                                    <Button HorizontalAlignment="Stretch" Padding="8,4" Background="Transparent" BorderThickness="0"
+                                            Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=SelectSceneFromList}"
+                                            CommandParameter="{Binding .}">
+                                      <TextBlock Text="{Binding .}" TextTrimming="CharacterEllipsis" />
+                                    </Button>
+                                  </DataTemplate>
+                                </ListBox.ItemTemplate>
+                              </ListBox>
                             </Grid>
-							  <Grid ColumnDefinitions="70,*" Margin="0,0,0,8">
-								  <TextBlock Grid.Column="0" Foreground="#B8B8B8" TextAlignment="Left" Margin="0,8,8,8">Camera</TextBlock>
-								  <AutoCompleteBox Grid.Column="1" Height="30" Margin="0" Watermark="Inherit/Main" Text="{Binding CurrentProject.Camera}" x:Name="cameraBox" />
-								  <ComboBox Grid.Column="1" IsVisible="false" SelectedItem="{Binding CurrentProject.Camera}" x:Name="availableCamerasBox"></ComboBox>
+							  <Grid ColumnDefinitions="70,*" RowDefinitions="Auto,Auto" Margin="0,0,0,8">
+								  <TextBlock Grid.RowSpan="2" Grid.Column="0" Foreground="#B8B8B8" TextAlignment="Left" Margin="0,8,8,8">Camera</TextBlock>
+								  <TextBox Grid.Column="1" Height="30" Margin="0" Watermark="Inherit/Main" Text="{Binding CurrentProject.Camera, Mode=TwoWay}" x:Name="cameraTextBox" />
+								  <ListBox Grid.Row="1" Grid.Column="1" IsVisible="false" MaxHeight="95" Margin="0,4,0,0" Items="{Binding CurrentProject.CamerasAvailable}" x:Name="availableCamerasList">
+                                    <ListBox.ItemTemplate>
+                                      <DataTemplate>
+                                        <Button HorizontalAlignment="Stretch" Padding="8,4" Background="Transparent" BorderThickness="0"
+                                                Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=SelectCameraFromList}"
+                                                CommandParameter="{Binding .}">
+                                          <TextBlock Text="{Binding .}" TextTrimming="CharacterEllipsis" />
+                                        </Button>
+                                      </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                  </ListBox>
 							  </Grid>
 
                             <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,5">
@@ -360,6 +404,21 @@
                           <Button Margin="14,0,14,5" Padding="10,7" Command="{Binding SaveImage}" Background="{StaticResource BlendFarmButtonBrush}" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}">
                                 Save Image
                           </Button>
+                          <Border x:Name="animationProgressPanel" IsVisible="False" Background="#2A2A2A" BorderBrush="#505050" BorderThickness="1" CornerRadius="4" Margin="14,4,14,5" Padding="12">
+                            <StackPanel>
+                              <TextBlock Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" Margin="0,0,0,8">ANIMATION PROGRESS</TextBlock>
+                              <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,2,8,2">Frames Rendered</TextBlock>
+                                <TextBlock Grid.Row="0" Grid.Column="1" x:Name="animationFramesRendered" Margin="0,2,0,2">--</TextBlock>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,2,8,2">Current Frame</TextBlock>
+                                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="animationCurrentFrame" Margin="0,2,0,2">--</TextBlock>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,2,8,2">Estimated Remaining</TextBlock>
+                                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="animationEstimatedRemaining" Margin="0,2,0,2">--</TextBlock>
+                              </Grid>
+                              <ProgressBar x:Name="animationTimelineProgress" Minimum="0" Maximum="100" Height="8" Margin="0,10,0,8" />
+                              <TextBlock x:Name="animationTimeline" FontFamily="Consolas" Foreground="{StaticResource BlendFarmMutedTextBrush}" TextAlignment="Center">--</TextBlock>
+                            </StackPanel>
+                          </Border>
                           <Border Background="#2A2A2A" BorderBrush="#505050" BorderThickness="1" CornerRadius="4" Margin="14,4,14,5">
                           <Expander Header="Animation Render">
                             <StackPanel Margin="12">

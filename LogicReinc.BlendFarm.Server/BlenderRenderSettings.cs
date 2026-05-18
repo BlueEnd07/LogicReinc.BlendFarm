@@ -117,6 +117,11 @@ namespace LogicReinc.BlendFarm.Server
         public bool Workaround { get; set; }
 
         /// <summary>
+        /// Start a new Blender process instead of reusing a continuation session.
+        /// </summary>
+        public bool FreshProcess { get; set; }
+
+        /// <summary>
         /// Converts a RenderSettings received from Client to the internal class
         /// Merge?
         /// </summary>
@@ -143,6 +148,7 @@ namespace LogicReinc.BlendFarm.Server
                 Denoiser = settings.Denoiser,
                 FPS = settings.FPS,
                 Workaround = settings.Workaround,
+                FreshProcess = !string.IsNullOrEmpty(settings.RenderFormat),
                 Engine = settings.Engine,
                 RenderFormat = settings.RenderFormat
             };

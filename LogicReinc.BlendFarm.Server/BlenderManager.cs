@@ -643,9 +643,11 @@ namespace LogicReinc.BlendFarm.Server
                 Busy = true;
             }
 
+            bool useContinuation = USE_CONTINUATION && !batch.Any(x => x.FreshProcess);
+
             //Does an ongoing render process match Blender, File, and File version
             if(RenderProcess != null && RenderProcess.Active && RenderProcess.IsContinueing && 
-                (version != RenderProcess.Version || file != RenderProcess.File || RenderProcess.FileID != fileId))
+                (!useContinuation || version != RenderProcess.Version || file != RenderProcess.File || RenderProcess.FileID != fileId))
             {
                 Console.WriteLine("Old continueing RenderProcess, cancelling..");
                 RenderProcess.Cancel();
@@ -671,7 +673,7 @@ namespace LogicReinc.BlendFarm.Server
                 {
 
                     string cmd = GetVersionCommand(version);
-                    string arg = $"--factory-startup -noaudio -b \"{Path.GetFullPath(file)}\" -P \"{GetRenderScriptPath()}\" -- \"{path}\" {USE_CONTINUATION}";
+                    string arg = $"--factory-startup -noaudio -b \"{Path.GetFullPath(file)}\" -P \"{GetRenderScriptPath()}\" -- \"{path}\" {useContinuation}";
 
                     //If an continueing process is ongoing, continue instead.
                     if (RenderProcess == null || !RenderProcess.Active || !RenderProcess.IsContinueing)
@@ -699,7 +701,7 @@ namespace LogicReinc.BlendFarm.Server
             }
             finally
             {
-                if (!USE_CONTINUATION || !RenderProcess.Active)
+                if (!useContinuation || !RenderProcess.Active)
                 {
                     RenderSession = null;
                     RenderProcess = null;

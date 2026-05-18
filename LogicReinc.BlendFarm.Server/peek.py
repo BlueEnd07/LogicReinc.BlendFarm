@@ -18,11 +18,11 @@ try:
         FrameEnd = scn.frame_end,
         Samples = scn.cycles.samples,
         Cameras = [],
-        SelectedCamera = scn.camera.name,
+        SelectedCamera = scn.camera.name if scn.camera is not None else "",
         Scenes = [],
         SelectedScene = scn.name
     )
-    for obj in scn.objects:
+    for obj in bpy.data.objects:
         if(obj.type == "CAMERA"):
             peekObj["Cameras"].append(obj.name);
             
