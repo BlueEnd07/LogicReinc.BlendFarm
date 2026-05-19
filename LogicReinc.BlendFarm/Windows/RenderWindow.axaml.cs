@@ -64,6 +64,7 @@ namespace LogicReinc.BlendFarm.Windows
 
         public ObservableCollection<QueueItem> Queue { get; set; } = new ObservableCollection<QueueItem>();
 
+        public ObservableCollection<RenderActivityLogEntry> ActivityLog { get; set; } = new ObservableCollection<RenderActivityLogEntry>();
 
         public bool IsClientConnecting { get; set; }
         public string InputClientName { get; set; }
@@ -148,6 +149,8 @@ namespace LogicReinc.BlendFarm.Windows
         private TextBlock _statsFramesToday = null;
         private TextBlock _statsFastestNode = null;
         private TextBlock _statsAverageFrame = null;
+        private TextBlock _renderProgressSummary = null;
+        private ListBox _activityLogList = null;
         private ComboBox _selectStrategy = null;
         private ComboBox _selectOrder = null;
         private ComboBox _selectOutputType = null;
@@ -159,6 +162,9 @@ namespace LogicReinc.BlendFarm.Windows
         private Point _dragStartPoint;
         private bool _isDraggingNode = false;
         private bool _loadingMeta = false;
+        private readonly HashSet<RenderNode> _activityTrackedNodes = new HashSet<RenderNode>();
+        private readonly HashSet<string> _loggedDiscoveryNodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private Action<string, string, int> _discoveredServerHandler = null;
 
         private DateTime _statsDate = DateTime.Today;
         private int _framesRenderedToday = 0;
@@ -242,24 +248,37 @@ namespace LogicReinc.BlendFarm.Windows
             if(Manager?.Nodes != null)
             {
                 foreach(RenderNode node in Manager.Nodes.ToList())
+                {
                     Nodes.Add(node);
+                    AttachNodeActivity(node);
+                }
                 Manager.OnNodeAdded += (manager, node) => Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     Nodes.Add(node);
+                    AttachNodeActivity(node);
+                    AddActivityLog($"{node.NodeTitle} added");
                     UpdateRenderStats();
                 });
                 Manager.OnNodeRemoved += (manager, node) => Dispatcher.UIThread.InvokeAsync(() =>
                 {
+                    DetachNodeActivity(node);
+                    AddActivityLog($"{node.NodeTitle} removed");
                     Nodes.Remove(node);
                     UpdateRenderStats();
                 });
             }
             else 
+            {
                 Nodes =  _testNodes;
+                foreach (RenderNode node in Nodes)
+                    AttachNodeActivity(node);
+            }
             DataContext = this;
 
             this.Closed += (a, b) =>
             {
+                if (_discoveredServerHandler != null)
+                    LocalServer.OnDiscoveredServer -= _discoveredServerHandler;
                 LocalServer.Stop();
                 Manager.StopFileWatch();
                 Manager.Cleanup();
@@ -267,7 +286,47 @@ namespace LogicReinc.BlendFarm.Windows
             Manager?.StartFileWatch();
 
             this.InitializeComponent();
+            StartDiscoveryTracking();
             _ = StartAutomaticNodeSetup();
+        }
+
+        private void StartDiscoveryTracking()
+        {
+            if (Manager == null || _discoveredServerHandler != null)
+                return;
+
+            _discoveredServerHandler = (name, address, port) =>
+            {
+                try
+                {
+                    RenderNode node = Manager.TryAddDiscoveryNode(name, address, port);
+                    Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        string discoveryKey = GetDiscoveryLogKey(node.Address);
+                        if (_loggedDiscoveryNodes.Add(discoveryKey))
+                            AddActivityLog($"Discovered {node.NodeTitle} at {node.Address}");
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.UIThread.InvokeAsync(() => AddActivityLog($"Discovery failed for {name} at {address}:{port}: {ex.Message}"));
+                }
+            };
+
+            LocalServer.OnDiscoveredServer += _discoveredServerHandler;
+        }
+
+        private static string GetDiscoveryLogKey(string address)
+        {
+            if (string.IsNullOrWhiteSpace(address))
+                return "";
+
+            address = address.Trim().ToLowerInvariant();
+            if (address.StartsWith("127.0.0.1:", StringComparison.OrdinalIgnoreCase))
+                return "localhost:" + address.Substring("127.0.0.1:".Length);
+            if (address.StartsWith("::1:", StringComparison.OrdinalIgnoreCase))
+                return "localhost:" + address.Substring("::1:".Length);
+            return address;
         }
 
         private void InitializeComponent()
@@ -296,6 +355,8 @@ namespace LogicReinc.BlendFarm.Windows
             _statsFramesToday = this.Find<TextBlock>("statsFramesToday");
             _statsFastestNode = this.Find<TextBlock>("statsFastestNode");
             _statsAverageFrame = this.Find<TextBlock>("statsAverageFrame");
+            _renderProgressSummary = this.Find<TextBlock>("renderProgressSummary");
+            _activityLogList = this.Find<ListBox>("activityLogList");
             _selectStrategy = this.Find<ComboBox>("selectStrategy");
             _selectOrder = this.Find<ComboBox>("selectOrder");
             _selectOutputType = this.Find<ComboBox>("selectOutputType");
@@ -359,6 +420,9 @@ namespace LogicReinc.BlendFarm.Windows
 
             AddHandler(DragDrop.DragOverEvent, NodeInspectorDragOver);
             AddHandler(DragDrop.DropEvent, NodeInspectorDrop);
+
+            AddActivityLog("Ready");
+            UpdateCenterRenderProgress(0);
         }
 
         private void NodeInspectorPointerPressed(object sender, PointerPressedEventArgs e)
@@ -659,6 +723,105 @@ namespace LogicReinc.BlendFarm.Windows
         {
             DeviceLogWindow.Show(this, node);
         }
+
+        public void ClearActivityLog()
+        {
+            ActivityLog.Clear();
+            AddActivityLog("Log cleared");
+        }
+
+        private void AttachNodeActivity(RenderNode node)
+        {
+            if (node == null || _activityTrackedNodes.Contains(node))
+                return;
+
+            _activityTrackedNodes.Add(node);
+            node.OnConnected += HandleNodeConnected;
+            node.OnDisconnected += HandleNodeDisconnected;
+            node.OnActivityChanged += HandleNodeActivityChanged;
+            node.OnLog += HandleNodeLog;
+        }
+
+        private void DetachNodeActivity(RenderNode node)
+        {
+            if (node == null || !_activityTrackedNodes.Remove(node))
+                return;
+
+            node.OnConnected -= HandleNodeConnected;
+            node.OnDisconnected -= HandleNodeDisconnected;
+            node.OnActivityChanged -= HandleNodeActivityChanged;
+            node.OnLog -= HandleNodeLog;
+        }
+
+        private void HandleNodeConnected(RenderNode node)
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AddActivityLog($"{node.NodeTitle} connected");
+                UpdateCenterRenderProgress(CurrentProject?.CurrentTask?.Progress ?? 0);
+            });
+        }
+
+        private void HandleNodeDisconnected(RenderNode node)
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AddActivityLog($"{node.NodeTitle} disconnected");
+                UpdateCenterRenderProgress(CurrentProject?.CurrentTask?.Progress ?? 0);
+            });
+        }
+
+        private void HandleNodeActivityChanged(RenderNode node, string activity)
+        {
+            if (string.IsNullOrWhiteSpace(activity))
+                return;
+
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AddActivityLog($"{node.NodeTitle}: {activity}");
+                UpdateCenterRenderProgress(CurrentProject?.CurrentTask?.Progress ?? 0);
+            });
+        }
+
+        private void HandleNodeLog(RenderNode node, string log)
+        {
+            if (string.IsNullOrWhiteSpace(log))
+                return;
+
+            string message = log.Trim();
+            if (message.Length > 180)
+                message = message.Substring(0, 177) + "...";
+
+            Dispatcher.UIThread.InvokeAsync(() => AddActivityLog($"{node.NodeTitle}: {message}"));
+        }
+
+        private void AddActivityLog(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return;
+
+            ActivityLog.Add(new RenderActivityLogEntry(message));
+            while (ActivityLog.Count > 150)
+                ActivityLog.RemoveAt(0);
+
+            _activityLogList?.ScrollIntoView(ActivityLog.LastOrDefault());
+        }
+
+        private void UpdateCenterRenderProgress(double progress)
+        {
+            if (_renderProgressSummary == null)
+                return;
+
+            progress = Math.Max(0, Math.Min(1, progress));
+            int activeNodes = Nodes.Count(x => x.Connected && !string.IsNullOrWhiteSpace(x.Activity));
+            if (CurrentProject?.CurrentTask != null)
+                _renderProgressSummary.Text = $"{progress * 100:0}% complete";
+            else if (activeNodes > 0)
+                _renderProgressSummary.Text = $"{activeNodes} active node{(activeNodes == 1 ? "" : "s")}";
+            else
+                _renderProgressSummary.Text = "Idle";
+        }
+
         public async void ConfigureNode(RenderNode node)
         {
             DeviceSettingsWindow.Show(this, node);
@@ -675,6 +838,58 @@ namespace LogicReinc.BlendFarm.Windows
             }
 
             BlendFarmSettings.Instance.ApplyProjectSettings(CurrentProject.BlendFile, CurrentProject.GetProjectSettings());
+            AddActivityLog($"Render started for {CurrentProject.BlendFileDisplay}");
+            AddActivityLog($"Settings: {task.Settings.OutputWidth}x{task.Settings.OutputHeight}, {task.Settings.Samples} samples, {task.Settings.Strategy}");
+            UpdateCenterRenderProgress(0);
+        }
+
+        private void AttachRenderTaskActivityLogging(RenderTask task)
+        {
+            if (task == null)
+                return;
+
+            task.OnSubTaskStarted += RenderTaskSubTaskStarted;
+            task.OnSubTaskFinished += RenderTaskSubTaskFinished;
+        }
+
+        private void DetachRenderTaskActivityLogging(RenderTask task)
+        {
+            if (task == null)
+                return;
+
+            task.OnSubTaskStarted -= RenderTaskSubTaskStarted;
+            task.OnSubTaskFinished -= RenderTaskSubTaskFinished;
+        }
+
+        private void RenderTaskSubTaskStarted(RenderNode node, RenderSubTask task)
+        {
+            AddRenderSubTaskActivity(node, task, "started");
+        }
+
+        private void RenderTaskSubTaskFinished(RenderNode node, RenderSubTask task)
+        {
+            AddRenderSubTaskActivity(node, task, "finished");
+        }
+
+        private void AddRenderSubTaskActivity(RenderNode node, RenderSubTask task, string action)
+        {
+            if (node == null || task == null)
+                return;
+
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AddActivityLog($"{node.NodeTitle} {action} {FormatRenderSubTask(task)}");
+            });
+        }
+
+        private static string FormatRenderSubTask(RenderSubTask task)
+        {
+            if (task == null)
+                return "render task";
+
+            return task.Crop
+                ? $"tile for frame {task.Frame}"
+                : $"frame {task.Frame}";
         }
 
         public async Task<BlenderPeekResponse> RequestPeek(OpenBlenderProject currentProject)
@@ -866,6 +1081,7 @@ namespace LogicReinc.BlendFarm.Windows
                 _lastRenderTime.Text = "0:00";
             if (_estimatedRenderTime != null)
                 _estimatedRenderTime.Text = "Calculating...";
+            UpdateCenterRenderProgress(0);
         }
 
         private void UpdateRenderTiming(Stopwatch watch, double progress)
@@ -874,6 +1090,7 @@ namespace LogicReinc.BlendFarm.Windows
                 _lastRenderTime.Text = FormatDuration(watch.Elapsed);
             if (_estimatedRenderTime != null)
                 _estimatedRenderTime.Text = GetEstimatedRemainingText(watch.Elapsed, progress);
+            UpdateCenterRenderProgress(progress);
         }
 
         private static string GetEstimatedRemainingText(TimeSpan elapsed, double progress)
@@ -923,6 +1140,7 @@ namespace LogicReinc.BlendFarm.Windows
                 _animationTimelineProgress.Value = progress * 100;
             if (_animationTimeline != null)
                 _animationTimeline.Text = BuildFrameTimeline(startFrame, endFrame, currentFrame, progress);
+            UpdateCenterRenderProgress(progress);
         }
 
         private static string BuildFrameTimeline(int startFrame, int endFrame, int currentFrame, double progress)
@@ -1050,6 +1268,7 @@ namespace LogicReinc.BlendFarm.Windows
                         });
                     });
                     currentProject.SetRenderTask(task);
+                    AttachRenderTaskActivityLogging(task);
 
                     //Progress Updating
                     currentProject.CurrentTask.OnProgress += async (task, progress) =>
@@ -1059,6 +1278,8 @@ namespace LogicReinc.BlendFarm.Windows
                             this._imageProgress.IsIndeterminate = false;
                             this._imageProgress.Value = progress * 100;
                             UpdateRenderTiming(watch, progress);
+                            if (progress >= 1)
+                                AddActivityLog("Render processing complete");
                         });
                     };
                     Dispatcher.UIThread.InvokeAsync(async () => {
@@ -1086,6 +1307,7 @@ namespace LogicReinc.BlendFarm.Windows
                         UpdateRenderTiming(watch, 1);
                         RecordRenderedFrames(1, watch.Elapsed);
                         this._imageProgress.IsVisible = false;
+                        AddActivityLog($"Render completed in {FormatDuration(watch.Elapsed)}");
                     });
                     watch.Stop();
 
@@ -1097,6 +1319,7 @@ namespace LogicReinc.BlendFarm.Windows
                         this._imageProgress.IsVisible = false;
                         if (_estimatedRenderTime != null)
                             _estimatedRenderTime.Text = "Failed";
+                        AddActivityLog($"Render failed: {ex.Message}");
                         if (_animationEstimatedRemaining != null && _animationProgressPanel?.IsVisible == true)
                             _animationEstimatedRemaining.Text = "Failed";
                     });
@@ -1110,6 +1333,7 @@ namespace LogicReinc.BlendFarm.Windows
                 finally
                 {
                     Manager.ClearLastTask();
+                    DetachRenderTaskActivityLogging(currentProject.CurrentTask);
                     currentProject.SetRenderTask(null);
                     Dispatcher.UIThread.InvokeAsync(() => RaisePropertyChanged(IsRenderingProperty, true, false));
                 }
@@ -1212,9 +1436,11 @@ namespace LogicReinc.BlendFarm.Windows
                             UpdateRenderTiming(watch, progress);
                             UpdateAnimationProgress(watch.Elapsed, currentProject.FrameStart, currentProject.FrameEnd, renderedCount, renderedFrame + 1);
                             RecordRenderedFrames(1, frameDuration);
+                            AddActivityLog($"Saved frame {task.Frame} as {fileName} ({renderedCount}/{totalFrames})");
                         });
                     });
                     currentProject.SetRenderTask(rtask);
+                    AttachRenderTaskActivityLogging(rtask);
 
                     //Progress Updating
                     currentProject.CurrentTask.OnProgress += async (task, progress) =>
@@ -1241,6 +1467,9 @@ namespace LogicReinc.BlendFarm.Windows
                         UpdateRenderTiming(watch, success ? 1 : currentProject.CurrentTask.Progress);
                         UpdateAnimationProgress(watch.Elapsed, currentProject.FrameStart, currentProject.FrameEnd, completedFrames, success ? currentProject.FrameEnd : currentProject.FrameStart + completedFrames);
                         this._imageProgress.IsVisible = false;
+                        AddActivityLog(success
+                            ? $"Animation render completed in {FormatDuration(watch.Elapsed)}"
+                            : "Animation render stopped before completion");
                     });
                     if (success)
                         _ = MessageWindow.ShowOnUIThread(this, "Animation Rendered", $"Frames {currentProject.FrameStart} to {currentProject.FrameEnd} rendered.\nLocated at {outputDir}.");
@@ -1255,6 +1484,7 @@ namespace LogicReinc.BlendFarm.Windows
                         this._imageProgress.IsVisible = false;
                         if (_estimatedRenderTime != null)
                             _estimatedRenderTime.Text = "Failed";
+                        AddActivityLog($"Animation render failed: {ex.Message}");
                         if (_animationEstimatedRemaining != null && _animationProgressPanel?.IsVisible == true)
                             _animationEstimatedRemaining.Text = "Failed";
                     });
@@ -1264,6 +1494,7 @@ namespace LogicReinc.BlendFarm.Windows
                 finally
                 {
                     Manager.ClearLastTask();
+                    DetachRenderTaskActivityLogging(currentProject.CurrentTask);
                     currentProject.SetRenderTask(null);
                     await Dispatcher.UIThread.InvokeAsync(() => RaisePropertyChanged(IsRenderingProperty, true, false));
                 }
@@ -1275,6 +1506,7 @@ namespace LogicReinc.BlendFarm.Windows
             RenderTask task = CurrentProject.CurrentTask;
             if (task != null)
                 await task.Cancel();
+            DetachRenderTaskActivityLogging(task);
             CurrentProject.SetRenderTask(null);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -1283,6 +1515,8 @@ namespace LogicReinc.BlendFarm.Windows
                     _estimatedRenderTime.Text = "Cancelled";
                 if (_animationEstimatedRemaining != null && _animationProgressPanel?.IsVisible == true)
                     _animationEstimatedRemaining.Text = "Cancelled";
+                AddActivityLog("Render cancelled");
+                UpdateCenterRenderProgress(task?.Progress ?? 0);
             });
         }
 
@@ -1713,5 +1947,17 @@ namespace LogicReinc.BlendFarm.Windows
         public bool WithAssetSync { get; set; }
         public bool ConnectLocal { get; set; }
         public bool ImportSettings { get; set; }
+    }
+
+    public class RenderActivityLogEntry
+    {
+        public string Time { get; }
+        public string Message { get; }
+
+        public RenderActivityLogEntry(string message)
+        {
+            Time = DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+            Message = message;
+        }
     }
 }

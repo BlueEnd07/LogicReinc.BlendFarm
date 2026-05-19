@@ -22,6 +22,8 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
             await HandleQueueAsync(_usedNodes.ToArray(), tasks, HandleResult, HandleException);
 
+            Roundup();
+
             return true;
         }
 

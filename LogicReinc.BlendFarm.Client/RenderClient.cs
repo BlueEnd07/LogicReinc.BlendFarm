@@ -150,10 +150,14 @@ namespace LogicReinc.BlendFarm.Client
                     handler(new BlendFarmDisconnected()
                     {
                         IsError = _lastDisconnectIsError,
-                        Reason = _lastDisconnectReason
+                        Reason = string.IsNullOrWhiteSpace(_lastDisconnectReason)
+                            ? "Render node disconnected"
+                            : _lastDisconnectReason
                     });
                 }
                 catch { }
+
+            _respHandlers.Clear();
 
         }
         #endregion

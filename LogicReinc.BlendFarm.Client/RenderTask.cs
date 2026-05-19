@@ -63,6 +63,14 @@ namespace LogicReinc.BlendFarm.Shared
         /// </summary>
         public event Action<RenderTask, double> OnProgress;
         /// <summary>
+        /// Event whenever a node starts a render subtask
+        /// </summary>
+        public event Action<RenderNode, RenderSubTask> OnSubTaskStarted;
+        /// <summary>
+        /// Event whenever a node finishes a render subtask
+        /// </summary>
+        public event Action<RenderNode, RenderSubTask> OnSubTaskFinished;
+        /// <summary>
         /// Event whenever relevant ui properties change
         /// </summary>
         public event PropertyChangedEventHandler PropertyChanged;
@@ -99,19 +107,34 @@ namespace LogicReinc.BlendFarm.Shared
             List<RenderNode> pool = Nodes.Where(x => x.Connected).ToList();
             List<RenderNode> validNodes = new List<RenderNode>();
 
+            foreach (RenderNode node in pool)
+            {
+                node.UpdateException("");
+                node.UpdateActivity("");
+            }
+
             await Task.WhenAll(pool.Select(async x =>
             {
                 bool hasVersion = await x.CheckVersion(Version);
                 if (!hasVersion)
+                {
+                    x.UpdateException($"Skipped: Blender version {Version} is not available");
                     return;
+                }
 
                 bool hasFile = await x.CheckSyncFile(SessionID, FileID);
                 if (!hasFile)
+                {
+                    x.UpdateException("Skipped: blend file is not synced");
                     return;
+                }
 
                 bool isBusy = await x.IsBusy();
                 if (isBusy)
+                {
+                    x.UpdateException("Skipped: node is already busy");
                     return;
+                }
 
                 lock (validNodes)
                 {
@@ -150,6 +173,7 @@ namespace LogicReinc.BlendFarm.Shared
                 }
 
                 node.UpdateException($"Skipped duplicate endpoint for {unique[key].Name}");
+                node.UpdateActivity($"Skipped duplicate endpoint for {unique[key].Name}");
             }
 
             return unique.Values.ToList();
@@ -168,8 +192,7 @@ namespace LogicReinc.BlendFarm.Shared
             }
 
             host = NormalizeHost(host);
-            string machine = string.IsNullOrWhiteSpace(node?.ComputerName) ? host : node.ComputerName.Trim();
-            return $"{machine}:{port}".ToLowerInvariant();
+            return $"{host}:{port}".ToLowerInvariant();
         }
 
         private static string NormalizeHost(string host)
@@ -374,6 +397,8 @@ namespace LogicReinc.BlendFarm.Shared
                     SubTaskResult taskPart = null;
                     try
                     {
+                        node.UpdateActivity(GetTaskActivityLabel(task), 0);
+                        NotifySubTaskStarted(node, task);
                         taskPart = ExecuteSubTask(node, task);
 
                         if (taskPart.Image == null)
@@ -381,6 +406,7 @@ namespace LogicReinc.BlendFarm.Shared
 
                         //ProcessTile(task, (Bitmap)taskPart.Image, ref g, ref result, ref drawLock);
 
+                        NotifySubTaskFinished(node, task);
                         onFinished(task, taskPart);
                     }
                     catch (TaskCanceledException ex)
@@ -397,8 +423,18 @@ namespace LogicReinc.BlendFarm.Shared
                         return;
                     }
                 }
+                node.UpdateActivity("");
             });
 
+        }
+
+        private static string GetTaskActivityLabel(RenderSubTask task)
+        {
+            if (task == null)
+                return "Rendering";
+            if (!task.Crop)
+                return $"Rendering frame {task.Frame}";
+            return $"Rendering tile for frame {task.Frame}";
         }
 
         /// <summary>
@@ -423,6 +459,7 @@ namespace LogicReinc.BlendFarm.Shared
                 {
                     lock (results)
                         results.Add(result);
+                    NotifySubTaskFinished(bnode, task);
                     onResult(task, result);
                 }
             };
@@ -432,6 +469,8 @@ namespace LogicReinc.BlendFarm.Shared
             try
             {
                 node.OnBatchResult += onAnyResult;
+                foreach (RenderSubTask task in tasks)
+                    NotifySubTaskStarted(node, task);
 
 
                 RenderBatchRequest req = RenderSubTask.GetRenderBatchRequest(ID, tasks);
@@ -563,6 +602,16 @@ namespace LogicReinc.BlendFarm.Shared
             Progress = (double)progress;
             TriggerPropUpdate(nameof(Progress));
             OnProgress?.Invoke(this, progress);
+        }
+
+        protected void NotifySubTaskStarted(RenderNode node, RenderSubTask task)
+        {
+            OnSubTaskStarted?.Invoke(node, task);
+        }
+
+        protected void NotifySubTaskFinished(RenderNode node, RenderSubTask task)
+        {
+            OnSubTaskFinished?.Invoke(node, task);
         }
 
         protected void ForceParallel<T>(IEnumerable<T> collections, Action<T> act)

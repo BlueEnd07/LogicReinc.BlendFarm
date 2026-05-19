@@ -10,7 +10,7 @@ namespace LogicReinc.BlendFarm.Client.Exceptions
         public string Reason { get; set; }
 
 
-        public BlendFarmDisconnectedException() { }
+        public BlendFarmDisconnectedException() : base("Render node disconnected") { }
         public BlendFarmDisconnectedException(string msg) : base(msg) { }
     }
 }

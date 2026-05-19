@@ -48,6 +48,11 @@ namespace LogicReinc.BlendFarm.Shared.Communication
                 }
                 catch(Exception ex)
                 {
+                    if (string.IsNullOrWhiteSpace(_disconnectReason))
+                    {
+                        _disconnectIsError = true;
+                        _disconnectReason = ex.Message;
+                    }
                     Console.WriteLine("TCP listening exception: " + ex.Message);
                 }
                 finally
@@ -155,7 +160,11 @@ namespace LogicReinc.BlendFarm.Shared.Communication
 
                 int read = 0;
                 if ((read = await str.ReadAsync(headerBytes, 0, MAX_HEADER_SIZE, _cancel.Token)) != MAX_HEADER_SIZE)
+                {
+                    if (read == 0)
+                        throw new IOException("Connection closed by remote host");
                     throw new InvalidDataException($"Expected header of length {MAX_HEADER_SIZE}, found {read}");
+                }
                 string header = Encoding.UTF8.GetString(headerBytes).Trim('_');
 
                 if ((read = await str.ReadAsync(sizeBytes, 0, 4, _cancel.Token)) != sizeBytes.Length)

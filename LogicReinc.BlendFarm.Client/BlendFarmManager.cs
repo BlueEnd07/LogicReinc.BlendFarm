@@ -222,11 +222,54 @@ namespace LogicReinc.BlendFarm.Client
         public RenderNode TryAddDiscoveryNode(string name, string address, int port)
         {
             string addressPort = $"{address}:{port}";
-            RenderNode existing = GetNodeByAddress($"{addressPort}");
+            RenderNode existing = Nodes.FirstOrDefault(x => AddressesMatch(x.Address, addressPort));
             if (existing != null)
                 return existing;
 
-            return AddNode(name, addressPort, RenderType.OPTIX_GPUONLY);
+            string nodeName = GetUniqueNodeName(name);
+            return AddNode(nodeName, addressPort, RenderType.OPTIX_GPUONLY);
+        }
+
+        private string GetUniqueNodeName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                name = "Discovered Node";
+
+            string candidate = name;
+            int index = 2;
+            while (GetNodeByName(candidate) != null)
+            {
+                candidate = $"{name} {index}";
+                index++;
+            }
+
+            return candidate;
+        }
+
+        private static bool AddressesMatch(string left, string right)
+        {
+            return NormalizeAddress(left) == NormalizeAddress(right);
+        }
+
+        private static string NormalizeAddress(string address)
+        {
+            if (string.IsNullOrWhiteSpace(address))
+                return "";
+
+            address = address.Trim().ToLowerInvariant();
+            string host = address;
+            string port = "";
+            int portIndex = address.LastIndexOf(':');
+            if (portIndex >= 0 && portIndex < address.Length - 1)
+            {
+                host = address.Substring(0, portIndex);
+                port = address.Substring(portIndex + 1);
+            }
+
+            if (host == "127.0.0.1" || host == "::1")
+                host = "localhost";
+
+            return $"{host}:{port}";
         }
 
         public void RemoveNode(string name)

@@ -186,6 +186,19 @@ namespace LogicReinc.BlendFarm.Client
         /// If activity has any progress
         /// </summary>
         public bool HasActivityProgress => ActivityProgress > 0;
+        public double ActivityProgressValue => ActivityProgress > 0 ? Math.Min(100, ActivityProgress) : 0;
+        public string ActivityProgressDisplay => ActivityProgress > 0 ? $"{Math.Min(100, ActivityProgress):0}%" : "--";
+        public string ActivityDisplay
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(Activity))
+                    return Activity;
+                if (!string.IsNullOrWhiteSpace(Exception))
+                    return Exception;
+                return "Idle";
+            }
+        }
 
         /// <summary>
         /// Last exception
@@ -711,6 +724,7 @@ namespace LogicReinc.BlendFarm.Client
 
                 UpdateActivity("Render Loading..");
 
+                int recoverAtts = 0;
                 while (true)
                 {
                     try
@@ -720,6 +734,10 @@ namespace LogicReinc.BlendFarm.Client
                     }
                     catch (BlendFarmDisconnectedException ex)
                     {
+                        recoverAtts++;
+                        if (recoverAtts > 3)
+                            throw new RecoverException($"Failed to recover render node connection: {ex.Message}");
+
                         RecoverResponse r = await ConnectRecover(5, 1000, new string[] { req.SessionID });
                         if (!r.Success)
                             throw new RecoverException(r.Message);
@@ -946,12 +964,19 @@ namespace LogicReinc.BlendFarm.Client
                 ActivityProgress = -1;
                 Activity = activity;
                 OnActivityChanged?.Invoke(this, activity);
-                TriggerPropChange(nameof(Activity), nameof(IsIdle));
+                TriggerPropChange(
+                    nameof(Activity),
+                    nameof(ActivityDisplay),
+                    nameof(ActivityProgress),
+                    nameof(ActivityProgressValue),
+                    nameof(ActivityProgressDisplay),
+                    nameof(HasActivityProgress),
+                    nameof(IsIdle));
             }
             if(ActivityProgress != progress)
             {
                 ActivityProgress = progress;
-                TriggerPropChange(nameof(ActivityProgress), nameof(HasActivityProgress));
+                TriggerPropChange(nameof(ActivityProgress), nameof(ActivityProgressValue), nameof(ActivityProgressDisplay), nameof(HasActivityProgress));
             }
         }
 
@@ -980,7 +1005,7 @@ namespace LogicReinc.BlendFarm.Client
             if (Exception != excp)
             {
                 Exception = excp;
-                TriggerPropChange(nameof(Exception));
+                TriggerPropChange(nameof(Exception), nameof(ActivityDisplay));
             }
         }
         public void UpdateLastStatus(string status)

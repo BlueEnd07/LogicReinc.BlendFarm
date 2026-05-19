@@ -236,7 +236,13 @@
                   Background="{StaticResource BlendFarmSoftBorderBrush}"
                   ResizeDirection="Columns" />
 
-    <Grid Grid.Row="0" Grid.Column="2" RowDefinitions="50,*,10" ColumnDefinitions="*">
+    <Grid Grid.Row="0" Grid.Column="2" ColumnDefinitions="*">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="50" />
+        <RowDefinition Height="*" MinHeight="180" />
+        <RowDefinition Height="6" />
+        <RowDefinition Height="280" MinHeight="170" />
+      </Grid.RowDefinitions>
       <Grid Grid.Row="0" Grid.Column="0" RowDefinitions="*" ColumnDefinitions="*,35,50">
 
         
@@ -304,7 +310,159 @@
             IsVisible="{Binding CurrentProject.IsRendering}"
             x:Name="renderProgress"
             Grid.Column="0"
-            Grid.Row="2"></ProgressBar>
+            Grid.Row="1"
+            VerticalAlignment="Bottom"
+            Height="5"></ProgressBar>
+      <GridSplitter Grid.Row="2"
+                    Grid.Column="0"
+                    Height="6"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    Background="{StaticResource BlendFarmSoftBorderBrush}"
+                    ResizeDirection="Rows" />
+      <Border Grid.Row="3"
+              Grid.Column="0"
+              Background="{StaticResource BlendFarmSurfaceBrush}"
+              BorderBrush="{StaticResource BlendFarmBorderBrush}"
+              BorderThickness="0,1,0,0"
+              Padding="12">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="94" MinHeight="64" />
+            <RowDefinition Height="6" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" MinHeight="70" />
+          </Grid.RowDefinitions>
+          <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,9">
+            <TextBlock Grid.Column="0"
+                       Foreground="{StaticResource BlendFarmSubtleTextBrush}"
+                       FontSize="11"
+                       FontWeight="Bold">RENDER PROGRESS</TextBlock>
+            <TextBlock Grid.Column="1"
+                       x:Name="renderProgressSummary"
+                       Foreground="{StaticResource BlendFarmMutedTextBrush}"
+                       FontSize="12">Idle</TextBlock>
+          </Grid>
+          <ListBox Grid.Row="1"
+                   Classes="nodeCards"
+                   Items="{Binding Nodes}"
+                   Background="Transparent"
+                   BorderBrush="Transparent"
+                   Padding="0"
+                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                   ScrollViewer.VerticalScrollBarVisibility="Disabled">
+            <ListBox.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <Border Width="250"
+                        Height="82"
+                        Background="{StaticResource BlendFarmPanelBrush}"
+                        BorderBrush="{StaticResource BlendFarmBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="11"
+                        Margin="0,0,10,0">
+                  <Grid RowDefinitions="Auto,Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="12,*,Auto">
+                      <Ellipse Grid.Column="0"
+                               Width="9"
+                               Height="9"
+                               VerticalAlignment="Center"
+                               Fill="#12C979"
+                               IsVisible="{Binding Connected}" />
+                      <Ellipse Grid.Column="0"
+                               Width="9"
+                               Height="9"
+                               VerticalAlignment="Center"
+                               Fill="#FF5066"
+                               IsVisible="{Binding !Connected}" />
+                      <TextBlock Grid.Column="1"
+                                 Text="{Binding NodeTitle}"
+                                 Foreground="{StaticResource BlendFarmTextBrush}"
+                                 FontWeight="Bold"
+                                 TextTrimming="CharacterEllipsis"
+                                 Margin="6,0,8,0"
+                                 ToolTip.Tip="{Binding NodeTitle}" />
+                      <TextBlock Grid.Column="2"
+                                 Text="{Binding ActivityProgressDisplay}"
+                                 Foreground="{StaticResource BlendFarmTextBrush}"
+                                 FontWeight="Bold"
+                                 FontSize="12" />
+                    </Grid>
+                    <TextBlock Grid.Row="1"
+                               Text="{Binding ActivityDisplay}"
+                               Foreground="{StaticResource BlendFarmMutedTextBrush}"
+                               FontSize="11"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="18,7,0,0"
+                               ToolTip.Tip="{Binding ActivityDisplay}" />
+                    <ProgressBar Grid.Row="2"
+                                 Minimum="0"
+                                 Maximum="100"
+                                 Value="{Binding ActivityProgressValue}"
+                                 Height="8"
+                                 VerticalAlignment="Bottom" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <GridSplitter Grid.Row="2"
+                        Height="6"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Stretch"
+                        Background="{StaticResource BlendFarmSoftBorderBrush}"
+                        ResizeDirection="Rows" />
+          <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,8,0,8">
+            <TextBlock Grid.Column="0"
+                       Foreground="{StaticResource BlendFarmSubtleTextBrush}"
+                       FontSize="11"
+                       FontWeight="Bold">ACTIVITY LOG</TextBlock>
+            <Button Grid.Column="1"
+                    Padding="8,3"
+                    FontSize="11"
+                    Background="Transparent"
+                    BorderBrush="{StaticResource BlendFarmSoftBorderBrush}"
+                    Command="{Binding ClearActivityLog}">Clear Log</Button>
+          </Grid>
+          <Border Grid.Row="4"
+                  Background="{StaticResource BlendFarmPanelBrush}"
+                  BorderBrush="{StaticResource BlendFarmBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="8">
+            <ListBox x:Name="activityLogList"
+                     Items="{Binding ActivityLog}"
+                     Background="Transparent"
+                     BorderBrush="Transparent"
+                     Padding="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <Grid ColumnDefinitions="62,*" Margin="0,0,0,5">
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding Time}"
+                               Foreground="{StaticResource BlendFarmMutedTextBrush}"
+                               FontFamily="Consolas"
+                               FontSize="12" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding Message}"
+                               Foreground="{StaticResource BlendFarmTextBrush}"
+                               FontSize="12"
+                               TextWrapping="Wrap" />
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Border>
+        </Grid>
+      </Border>
     </Grid>
 
     <GridSplitter Grid.Row="0" Grid.Column="3"

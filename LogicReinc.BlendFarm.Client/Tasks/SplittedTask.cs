@@ -54,6 +54,7 @@ namespace LogicReinc.BlendFarm.Client.Tasks
                             SubTaskResult taskPart = null;
                             try
                             {
+                                NotifySubTaskStarted(node, task);
                                 taskPart = ExecuteSubTask(node, task);
                             }
                             catch (TaskCanceledException ex)
@@ -90,6 +91,7 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
                             finished++;
                             rendered = true;
+                            NotifySubTaskFinished(node, task);
                             return;
                         }
                         if (!rendered && lastException != null)

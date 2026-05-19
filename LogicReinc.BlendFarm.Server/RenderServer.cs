@@ -77,7 +77,7 @@ namespace LogicReinc.BlendFarm.Server
         public RenderServer(int port, int broadcastPort, bool noBroadcastListen)
         {
             Port = port;
-            BroadcastPort = BroadcastPort;
+            BroadcastPort = broadcastPort;
             NoBroadcastListen = noBroadcastListen;
             Blender = new BlenderManager();
 
