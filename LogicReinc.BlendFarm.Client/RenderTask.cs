@@ -121,6 +121,11 @@ namespace LogicReinc.BlendFarm.Shared
 
             if (validNodes.Count == 0)
                 throw new InvalidOperationException("No ready nodes available");
+
+            validNodes = GetUniqueRenderEndpoints(validNodes);
+            if (validNodes.Count == 0)
+                throw new InvalidOperationException("No unique ready nodes available");
+
             _usedNodes = validNodes;
 
             foreach (RenderNode useNode in _usedNodes)
@@ -131,6 +136,53 @@ namespace LogicReinc.BlendFarm.Shared
             return result;
         }
         protected abstract Task<bool> Execute();
+
+        private static List<RenderNode> GetUniqueRenderEndpoints(List<RenderNode> nodes)
+        {
+            Dictionary<string, RenderNode> unique = new Dictionary<string, RenderNode>(StringComparer.OrdinalIgnoreCase);
+            foreach (RenderNode node in nodes)
+            {
+                string key = GetRenderEndpointKey(node);
+                if (!unique.ContainsKey(key))
+                {
+                    unique.Add(key, node);
+                    continue;
+                }
+
+                node.UpdateException($"Skipped duplicate endpoint for {unique[key].Name}");
+            }
+
+            return unique.Values.ToList();
+        }
+
+        private static string GetRenderEndpointKey(RenderNode node)
+        {
+            string address = node?.Address ?? "";
+            string host = address;
+            string port = "";
+            int portIndex = address.LastIndexOf(':');
+            if (portIndex >= 0 && portIndex < address.Length - 1)
+            {
+                host = address.Substring(0, portIndex);
+                port = address.Substring(portIndex + 1);
+            }
+
+            host = NormalizeHost(host);
+            string machine = string.IsNullOrWhiteSpace(node?.ComputerName) ? host : node.ComputerName.Trim();
+            return $"{machine}:{port}".ToLowerInvariant();
+        }
+
+        private static string NormalizeHost(string host)
+        {
+            if (string.IsNullOrWhiteSpace(host))
+                return "";
+
+            host = host.Trim().ToLowerInvariant();
+            if (host == "localhost" || host == "127.0.0.1" || host == "::1")
+                return "localhost";
+
+            return host;
+        }
 
 
         /// <summary>
@@ -396,6 +448,9 @@ namespace LogicReinc.BlendFarm.Shared
                 {
                     decimal pixelsRendered = req.Settings.Sum(x => (x.Height * (x.Y2 - x.Y)) * (x.Width * (x.X2 - x.X)));
                     node.UpdatePerformance((int)pixelsRendered, (int)time.ElapsedMilliseconds);
+                    int framesRendered = tasks.Count(x => !x.Crop);
+                    int tilesRendered = tasks.Length - framesRendered;
+                    node.RecordRenderCompletion(framesRendered, tilesRendered, (int)time.ElapsedMilliseconds);
                 }
 
             }
@@ -441,6 +496,7 @@ namespace LogicReinc.BlendFarm.Shared
                 //Update Performance
                 node.UpdatePerformance((int)((req.Settings.Height * (req.Settings.Y2 - req.Settings.Y)) * (req.Settings.Width * (req.Settings.X2 - req.Settings.X))), 
                     (int)time.ElapsedMilliseconds);
+                node.RecordRenderCompletion(task.Crop ? 0 : 1, task.Crop ? 1 : 0, (int)time.ElapsedMilliseconds);
 
                 result = resp.Data;
 

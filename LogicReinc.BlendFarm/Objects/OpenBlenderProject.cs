@@ -16,6 +16,7 @@ namespace LogicReinc.BlendFarm.Objects
         public string FileID { get; set; } = Guid.NewGuid().ToString();
         public string BlendFile { get; set; }
         public string Name => BlendFile != null ? Path.GetFileNameWithoutExtension(BlendFile) : "Unknown?";
+        public string BlendFileDisplay => BlendFile != null ? Path.GetFileName(BlendFile) : "--";
 
         //Networked Path
         private bool _useNetworkedPath = false;

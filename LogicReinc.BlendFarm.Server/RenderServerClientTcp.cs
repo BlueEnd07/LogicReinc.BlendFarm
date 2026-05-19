@@ -120,7 +120,13 @@ namespace LogicReinc.BlendFarm.Server
             {
                 Cores = Environment.ProcessorCount,
                 Name = Environment.MachineName,
-                OS = SystemInfo.GetOSName()
+                OS = SystemInfo.GetOSName(),
+                OSDescription = SystemInfo.GetOSDescription(),
+                Architecture = SystemInfo.GetArchitecture(),
+                ProcessorName = SystemInfo.GetProcessorName(),
+                GpuNames = SystemInfo.GetGpuNames(),
+                MemoryBytes = SystemInfo.GetMemoryBytes(),
+                RuntimeDescription = SystemInfo.GetRuntimeDescription()
             };
         }
 

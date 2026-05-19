@@ -41,7 +41,7 @@ namespace LogicReinc.BlendFarm.Client
                 if (_name != value)
                 {
                     _name = value;
-                    TriggerPropChange(nameof(Name));
+                    TriggerPropChange(nameof(Name), nameof(NodeTitle));
                 }
             }
         }
@@ -57,6 +57,12 @@ namespace LogicReinc.BlendFarm.Client
         /// Operating system of node
         /// </summary>
         public string OS { get; set; }
+        public string OSDescription { get; set; }
+        public string Architecture { get; set; }
+        public string ProcessorName { get; set; }
+        public string GpuNames { get; set; }
+        public long MemoryBytes { get; set; }
+        public string RuntimeDescription { get; set; }
 
         public string Pass { get; set; }
 
@@ -83,6 +89,36 @@ namespace LogicReinc.BlendFarm.Client
         /// Auto-balanced Performance score
         /// </summary>
         public decimal PerformanceScorePP { get; set; } = 0;
+        public int RenderedFrames { get; set; } = 0;
+        public int RenderedTiles { get; set; } = 0;
+        public long TotalRenderTimeMs { get; set; } = 0;
+        private bool _isInspectorExpanded = true;
+        public bool IsInspectorExpanded
+        {
+            get => _isInspectorExpanded;
+            set
+            {
+                if (_isInspectorExpanded != value)
+                {
+                    _isInspectorExpanded = value;
+                    TriggerPropChange(nameof(IsInspectorExpanded));
+                }
+            }
+        }
+        private bool _isBeingDragged = false;
+        public bool IsBeingDragged
+        {
+            get => _isBeingDragged;
+            set
+            {
+                if (_isBeingDragged != value)
+                {
+                    _isBeingDragged = value;
+                    TriggerPropChange(nameof(IsBeingDragged), nameof(DragOpacity));
+                }
+            }
+        }
+        public double DragOpacity => IsBeingDragged ? 0.65 : 1;
 
         /// <summary>
         /// Render type this node will use
@@ -98,6 +134,39 @@ namespace LogicReinc.BlendFarm.Client
         /// If node is connected
         /// </summary>
         public bool Connected => Client != null && Client.Connected;
+        public string NodeTitle
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(ComputerName) || ComputerName == Name)
+                    return Name;
+                return $"{Name} / {ComputerName}";
+            }
+        }
+        public string StatusLabel
+        {
+            get
+            {
+                if (!Connected)
+                    return "OFFLINE";
+                if (!IsSynced)
+                    return "SYNCING";
+                return "ONLINE";
+            }
+        }
+        public string OSDisplay => !string.IsNullOrWhiteSpace(OSDescription) ? OSDescription : (!string.IsNullOrWhiteSpace(OS) ? OS : "Unknown OS");
+        public string ProcessorDisplay => !string.IsNullOrWhiteSpace(ProcessorName) ? ProcessorName : (Cores > 0 ? $"{Cores} logical cores" : "Unknown CPU");
+        public string CpuDisplay => Cores > 0 ? $"{ProcessorDisplay} ({Cores} logical cores)" : ProcessorDisplay;
+        public string GpuDisplay => !string.IsNullOrWhiteSpace(GpuNames) ? GpuNames : "--";
+        public string CoreDisplay => Cores > 0 ? $"{Cores} logical cores" : "--";
+        public string MemoryDisplay => FormatBytes(MemoryBytes);
+        public string ArchitectureDisplay => !string.IsNullOrWhiteSpace(Architecture) ? Architecture : "--";
+        public string RenderTypeDisplay => RenderType.ToString();
+        public string PerformanceDisplay => Performance > 0 ? Performance.ToString("0.##") : (PerformanceScorePP > 0 ? PerformanceScorePP.ToString("0.####") : "--");
+        public string RenderedFramesDisplay => RenderedFrames.ToString();
+        public string RenderedTilesDisplay => RenderedTiles.ToString();
+        public string RenderedWorkDisplay => $"{RenderedFrames} frames / {RenderedTiles} tiles";
+        public string AverageRenderTimeDisplay => RenderedFrames > 0 ? FormatDuration(TimeSpan.FromMilliseconds((double)TotalRenderTimeMs / RenderedFrames)) : "--";
 
         public string SelectedSessionID { get; private set; }
 
@@ -183,13 +252,13 @@ namespace LogicReinc.BlendFarm.Client
 
         public RenderNode()
         {
-            OnConnected += (n) => 
-                TriggerPropChange(nameof(Connected));
+            OnConnected += (n) =>
+                TriggerPropChange(nameof(Connected), nameof(StatusLabel));
             OnDisconnected += (n) =>
             {
                 foreach (string k in SyncedMap.Keys.ToList())
                     UpdateSyncedStatus(k, false);
-                TriggerPropChange(nameof(Connected));
+                TriggerPropChange(nameof(Connected), nameof(StatusLabel));
             };
         }
 
@@ -202,6 +271,25 @@ namespace LogicReinc.BlendFarm.Client
         {
             decimal msPerPixel = (decimal)((decimal)pixelsRendered / ms);
             PerformanceScorePP = msPerPixel;
+        }
+
+        public void RecordRenderCompletion(int framesRendered, int tilesRendered, int ms)
+        {
+            if (framesRendered > 0)
+                RenderedFrames += framesRendered;
+            if (tilesRendered > 0)
+                RenderedTiles += tilesRendered;
+            if (ms > 0 && framesRendered > 0)
+                TotalRenderTimeMs += ms;
+
+            TriggerPropChange(
+                nameof(RenderedFrames),
+                nameof(RenderedTiles),
+                nameof(TotalRenderTimeMs),
+                nameof(RenderedFramesDisplay),
+                nameof(RenderedTilesDisplay),
+                nameof(RenderedWorkDisplay),
+                nameof(AverageRenderTimeDisplay));
         }
 
         public string GetCurrentLog()
@@ -269,8 +357,15 @@ namespace LogicReinc.BlendFarm.Client
 
                     ComputerInfoResponse compData = await GetComputerInfo();
                     OS = compData.OS;
+                    OSDescription = compData.OSDescription;
+                    Architecture = compData.Architecture;
+                    ProcessorName = compData.ProcessorName;
+                    GpuNames = compData.GpuNames;
+                    MemoryBytes = compData.MemoryBytes;
+                    RuntimeDescription = compData.RuntimeDescription;
                     Cores = compData.Cores;
                     ComputerName = compData.Name;
+                    TriggerSystemInfoChanged();
 
                     UpdateException("");
                     OnConnected?.Invoke(this);
@@ -330,6 +425,57 @@ namespace LogicReinc.BlendFarm.Client
             Client = null;
             UpdateException("");
             TriggerPropChange(nameof(Connected));
+            TriggerPropChange(nameof(StatusLabel));
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes <= 0)
+                return "--";
+
+            string[] suffixes = { "B", "KB", "MB", "GB", "TB" };
+            double value = bytes;
+            int suffix = 0;
+            while (value >= 1024 && suffix < suffixes.Length - 1)
+            {
+                value /= 1024;
+                suffix++;
+            }
+
+            return $"{value:0.#} {suffixes[suffix]}";
+        }
+
+        private static string FormatDuration(TimeSpan duration)
+        {
+            if (duration.TotalHours >= 1)
+                return $"{(int)duration.TotalHours}:{duration.Minutes:00}:{duration.Seconds:00}";
+            if (duration.TotalMinutes >= 1)
+                return $"{duration.Minutes}:{duration.Seconds:00}";
+            return $"{duration.TotalSeconds:0.0}s";
+        }
+
+        private void TriggerSystemInfoChanged()
+        {
+            TriggerPropChange(nameof(OS));
+            TriggerPropChange(nameof(OSDescription));
+            TriggerPropChange(nameof(Architecture));
+            TriggerPropChange(nameof(ProcessorName));
+            TriggerPropChange(nameof(GpuNames));
+            TriggerPropChange(nameof(MemoryBytes));
+            TriggerPropChange(nameof(RuntimeDescription));
+            TriggerPropChange(nameof(Cores));
+            TriggerPropChange(nameof(ComputerName));
+            TriggerPropChange(nameof(NodeTitle));
+            TriggerPropChange(nameof(StatusLabel));
+            TriggerPropChange(nameof(OSDisplay));
+            TriggerPropChange(nameof(ProcessorDisplay));
+            TriggerPropChange(nameof(CpuDisplay));
+            TriggerPropChange(nameof(GpuDisplay));
+            TriggerPropChange(nameof(CoreDisplay));
+            TriggerPropChange(nameof(MemoryDisplay));
+            TriggerPropChange(nameof(ArchitectureDisplay));
+            TriggerPropChange(nameof(RenderTypeDisplay));
+            TriggerPropChange(nameof(PerformanceDisplay));
         }
 
         /// <summary>
@@ -853,6 +999,7 @@ namespace LogicReinc.BlendFarm.Client
             }
             TriggerPropChange(nameof(SyncedMap));
             TriggerPropChange(nameof(IsSynced));
+            TriggerPropChange(nameof(StatusLabel));
         }
         public void UpdatePreparedStatus(bool val)
         {
@@ -865,6 +1012,7 @@ namespace LogicReinc.BlendFarm.Client
             SelectedSessionID = sessionID;
             TriggerPropChange(nameof(SelectedSessionID));
             TriggerPropChange(nameof(IsSynced));
+            TriggerPropChange(nameof(StatusLabel));
         }
 
         /// <summary>

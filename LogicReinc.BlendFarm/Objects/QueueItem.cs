@@ -27,18 +27,27 @@ namespace LogicReinc.BlendFarm.Objects
 
         public RenderTask Task { get; set; }
 
-        public string State => (!string.IsNullOrEmpty(Exception)) ? Exception : (!Cancelled ? (Task != null ? $"Rendering {Task.Progress * 100: 0.##}%" : "Queued") : "Cancelled");
+        public string State => (!string.IsNullOrEmpty(Exception)) ? Exception : (Cancelled ? "Cancelled" : (Completed ? "Completed" : (Task != null ? $"Rendering {Task.Progress * 100: 0.##}%" : "Queued")));
 
         public string Exception { get; set; }
 
         public bool Cancelled { get; set; }
 
-        public bool IsCancelable => !Cancelled && !Completed;
-        public bool IsDeletable => Cancelled || Completed;
-        public bool IsQueued => !Cancelled && !Completed && ((Task?.Progress ?? 0) == 0);
+        public bool IsRendering => Task != null && !Cancelled && !Completed;
+        public bool IsCancelable => IsRendering;
+        public bool IsDeletable => !IsRendering;
+        public bool IsQueued => !Cancelled && !Completed && Task == null;
 
 
         public string Name => Project?.Name;
+        public bool IsAnimation => Frames > 1;
+        public string RenderKind => IsAnimation ? "Animation" : "Image";
+        public string FrameRangeDisplay => IsAnimation ? $"{Settings.Frame} - {Settings.Frame + Frames - 1}" : Settings.Frame.ToString();
+        public string ResolutionDisplay => $"{Settings.OutputWidth} x {Settings.OutputHeight}";
+        public string SceneDisplay => string.IsNullOrWhiteSpace(Settings.Scene) ? "Default" : Settings.Scene;
+        public string CameraDisplay => string.IsNullOrWhiteSpace(Settings.Camera) ? "Default" : Settings.Camera;
+        public string SaveToDisplay => CompactPath(SaveTo);
+        public string SettingsSummary => $"{RenderKind} | {ResolutionDisplay} | Scene: {SceneDisplay} | Camera: {CameraDisplay} | Frame: {FrameRangeDisplay} | Output: {Settings.RenderFormat}";
         public bool Active => !Cancelled && !Completed;
         public double Progress => Task?.Progress ?? 0.0;
         public double ProgressPercentage => Task?.Progress * 100 ?? 0.0;
@@ -55,6 +64,29 @@ namespace LogicReinc.BlendFarm.Objects
             Project = proj;
             Settings = settings;
             SaveTo = saveTo;
+        }
+
+        private static string CompactPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return "--";
+
+            try
+            {
+                string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string leaf = Path.GetFileName(trimmed);
+                string parent = Path.GetFileName(Path.GetDirectoryName(trimmed));
+
+                if (!string.IsNullOrWhiteSpace(parent) && !string.IsNullOrWhiteSpace(leaf))
+                    return $"{parent}\\{leaf}";
+                if (!string.IsNullOrWhiteSpace(leaf))
+                    return leaf;
+            }
+            catch
+            {
+            }
+
+            return path.Length > 42 ? $"...{path.Substring(path.Length - 39)}" : path;
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
@@ -110,6 +142,7 @@ namespace LogicReinc.BlendFarm.Objects
                     System.Drawing.Image final = ((Task is IImageTask) ? (IImageTask)Task : null)?.FinalImage;
                     Thread.Sleep(500);
                     LastImage = final;
+                    FinishedAllFrames = true;
 
                     if (!string.IsNullOrEmpty(SaveTo))
                         final.Save(SaveTo);
@@ -194,7 +227,7 @@ namespace LogicReinc.BlendFarm.Objects
             }
             catch (Exception ex)
             {
-                if (!Task.Consumed)
+                if (Task != null && !Task.Consumed)
                     Task.Cancel();
                 Exception = ex.Message;
                 Cancelled = true;
@@ -213,10 +246,12 @@ namespace LogicReinc.BlendFarm.Objects
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Progress)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProgressPercentage)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Completed)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRendering)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsQueued)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Cancelled)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsDeletable)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCancelable)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SettingsSummary)));
             });
         }
 

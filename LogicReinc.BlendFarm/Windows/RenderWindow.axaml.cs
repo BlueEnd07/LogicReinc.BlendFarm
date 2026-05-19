@@ -2,11 +2,13 @@
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Data.Converters;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using LogicReinc.BlendFarm.Client;
 using LogicReinc.BlendFarm.Client.ImageTypes;
 using LogicReinc.BlendFarm.Client.Tasks;
@@ -54,7 +56,6 @@ namespace LogicReinc.BlendFarm.Windows
             AvaloniaProperty.RegisterDirect<RenderWindow, bool>(nameof(CanTabScrollLeft), (x) => x.CanTabScrollLeft, (w, v) => { });
         private static DirectProperty<RenderWindow, string> QueueNameProperty =
             AvaloniaProperty.RegisterDirect<RenderWindow, string>(nameof(QueueName), (x) => x.QueueName, (w, v) => { });
-
         //public string File { get; set; }
         public BlenderVersion Version { get; set; }
         public RenderWindowOptions Options { get; private set; }
@@ -89,6 +90,24 @@ namespace LogicReinc.BlendFarm.Windows
 
         private int _queueCount = 0;
         public string QueueName => $"Queue ({_queueCount})";
+        private bool HasActiveQueueItems()
+        {
+            lock (Queue)
+                return Queue.Any(x => x.Active);
+        }
+
+        private void RefreshQueueName()
+        {
+            int queueCount;
+            lock (Queue)
+                queueCount = Queue.Count(x => x.Active);
+
+            if (queueCount != _queueCount)
+            {
+                _queueCount = queueCount;
+                Dispatcher.UIThread.InvokeAsync(() => RaisePropertyChanged(QueueNameProperty, null, QueueName));
+            }
+        }
 
         public ObservableCollection<RenderNode> Nodes { get; private set; } = new ObservableCollection<RenderNode>();
         public BlendFarmManager Manager { get; set; } = null;
@@ -115,7 +134,6 @@ namespace LogicReinc.BlendFarm.Windows
 
 
         //Views
-        private ListBox _nodeList = null;
         private Image _image = null;
         private ProgressBar _imageProgress = null;
         private TextBlock _lastRenderTime = null;
@@ -134,10 +152,12 @@ namespace LogicReinc.BlendFarm.Windows
         private ComboBox _selectOrder = null;
         private ComboBox _selectOutputType = null;
         private TextBox _inputAnimationFileFormat = null;
-        private ListBox _scenesAvailableList = null;
-        private TextBox _sceneTextBox = null;
-        private ListBox _camerasAvailableList = null;
-        private TextBox _cameraTextBox = null;
+        private ComboBox _sceneComboBox = null;
+        private ComboBox _cameraComboBox = null;
+        private bool _updatingSceneCameraControls = false;
+        private RenderNode _draggedInspectorNode = null;
+        private Point _dragStartPoint;
+        private bool _isDraggingNode = false;
         private bool _loadingMeta = false;
 
         private DateTime _statsDate = DateTime.Today;
@@ -262,7 +282,6 @@ namespace LogicReinc.BlendFarm.Windows
             System.Version version = Assembly.GetExecutingAssembly().GetName().Version;
             this.Title = $"BlendFarm by LogicReinc [{version.Major}.{version.Minor}.{version.Build}]";
 
-            _nodeList = this.Find<ListBox>("listNodes");
             _image = this.Find<Image>("render");
             _imageProgress = this.Find<ProgressBar>("renderProgress");
             _lastRenderTime = this.Find<TextBlock>("lastRenderTime");
@@ -281,10 +300,8 @@ namespace LogicReinc.BlendFarm.Windows
             _selectOrder = this.Find<ComboBox>("selectOrder");
             _selectOutputType = this.Find<ComboBox>("selectOutputType");
             _inputAnimationFileFormat = this.Find<TextBox>("inputAnimationFileFormat");
-            _scenesAvailableList = this.Find<ListBox>("availableScenesList");
-            _sceneTextBox = this.Find<TextBox>("sceneTextBox");
-            _camerasAvailableList = this.Find<ListBox>("availableCamerasList");
-            _cameraTextBox = this.Find<TextBox>("cameraTextBox");
+            _sceneComboBox = this.Find<ComboBox>("sceneComboBox");
+            _cameraComboBox = this.Find<ComboBox>("cameraComboBox");
             UpdateRenderStats();
 
             _selectStrategy.Items = Enum.GetValues(typeof(RenderStrategy));
@@ -320,43 +337,132 @@ namespace LogicReinc.BlendFarm.Windows
                 }
             };
 
-            _scenesAvailableList.SelectionChanged += (s, e) =>
+            _sceneComboBox.SelectionChanged += (s, e) =>
             {
-                if (CurrentProject == null)
+                if (CurrentProject == null || _updatingSceneCameraControls)
                     return;
 
-                string scene = e.AddedItems?.OfType<object>().FirstOrDefault()?.ToString()
-                    ?? _scenesAvailableList.SelectedItem?.ToString();
+                string scene = _sceneComboBox.SelectedItem?.ToString();
                 if (scene != null)
                     SetCurrentProjectScene(scene);
             };
 
-            _camerasAvailableList.SelectionChanged += (s, e) =>
+            _cameraComboBox.SelectionChanged += (s, e) =>
             {
-                if (CurrentProject == null)
+                if (CurrentProject == null || _updatingSceneCameraControls)
                     return;
 
-                string camera = e.AddedItems?.OfType<object>().FirstOrDefault()?.ToString()
-                    ?? _camerasAvailableList.SelectedItem?.ToString();
+                string camera = _cameraComboBox.SelectedItem?.ToString();
                 if (camera != null)
                     SetCurrentProjectCamera(camera);
             };
 
-            _sceneTextBox.GetObservable(TextBox.TextProperty).Subscribe(text =>
+            AddHandler(DragDrop.DragOverEvent, NodeInspectorDragOver);
+            AddHandler(DragDrop.DropEvent, NodeInspectorDrop);
+        }
+
+        private void NodeInspectorPointerPressed(object sender, PointerPressedEventArgs e)
+        {
+            if (sender is Control control && control.DataContext is RenderNode node)
             {
-                if (CurrentProject == null)
-                    return;
+                _draggedInspectorNode = node;
+                _dragStartPoint = e.GetPosition(this);
+                _isDraggingNode = false;
+            }
+        }
 
-                SetCurrentProjectScene(text ?? "");
-            });
+        private async void NodeInspectorPointerMoved(object sender, PointerEventArgs e)
+        {
+            if (_draggedInspectorNode == null || _isDraggingNode)
+                return;
 
-            _cameraTextBox.GetObservable(TextBox.TextProperty).Subscribe(text =>
+            PointerPoint point = e.GetCurrentPoint(this);
+            if (!point.Properties.IsLeftButtonPressed)
+                return;
+
+            Point current = e.GetPosition(this);
+            if (Math.Abs(current.X - _dragStartPoint.X) < 8 && Math.Abs(current.Y - _dragStartPoint.Y) < 8)
+                return;
+
+            _isDraggingNode = true;
+            _draggedInspectorNode.IsBeingDragged = true;
+
+            try
             {
-                if (CurrentProject == null)
-                    return;
+                DataObject data = new DataObject();
+                data.Set(DataFormats.Text, _draggedInspectorNode.Name);
+                await DragDrop.DoDragDrop(e, data, DragDropEffects.Move);
+            }
+            finally
+            {
+                _draggedInspectorNode.IsBeingDragged = false;
+                _draggedInspectorNode = null;
+                _isDraggingNode = false;
+            }
+        }
 
-                SetCurrentProjectCamera(text ?? "");
-            });
+        private void NodeInspectorDragOver(object sender, DragEventArgs e)
+        {
+            if (e.Data.Contains(DataFormats.Text) && GetNodeFromEventSource(e.Source) != null)
+            {
+                e.DragEffects = DragDropEffects.Move;
+                e.Handled = true;
+            }
+        }
+
+        private void NodeInspectorDrop(object sender, DragEventArgs e)
+        {
+            string sourceNodeName = e.Data.GetText();
+            if (string.IsNullOrWhiteSpace(sourceNodeName))
+                return;
+
+            RenderNode sourceNode = Nodes.FirstOrDefault(x => x.Name == sourceNodeName);
+            RenderNode targetNode = GetNodeFromEventSource(e.Source);
+            if (targetNode != null)
+            {
+                MoveNodeInInspector(sourceNode, targetNode);
+                e.Handled = true;
+            }
+        }
+
+        private RenderNode GetNodeFromEventSource(object source)
+        {
+            if (source is Control control)
+            {
+                if (control.DataContext is RenderNode directNode)
+                    return directNode;
+
+                foreach (StyledElement ancestor in control.GetVisualAncestors().OfType<StyledElement>())
+                {
+                    if (ancestor.DataContext is RenderNode node)
+                        return node;
+                }
+            }
+
+            return null;
+        }
+
+        private void MoveNodeInInspector(RenderNode sourceNode, RenderNode targetNode)
+        {
+            if (sourceNode == null || targetNode == null || sourceNode == targetNode)
+                return;
+
+            int oldIndex = Nodes.IndexOf(sourceNode);
+            int newIndex = Nodes.IndexOf(targetNode);
+            if (oldIndex < 0 || newIndex < 0 || oldIndex == newIndex)
+                return;
+
+            Nodes.Move(oldIndex, newIndex);
+
+            if (Manager?.Nodes != null)
+            {
+                Manager.Nodes.Remove(sourceNode);
+                int managerIndex = Manager.Nodes.IndexOf(targetNode);
+                if (managerIndex < 0 || managerIndex > Manager.Nodes.Count)
+                    Manager.Nodes.Add(sourceNode);
+                else
+                    Manager.Nodes.Insert(managerIndex, sourceNode);
+            }
         }
 
 
@@ -434,8 +540,7 @@ namespace LogicReinc.BlendFarm.Windows
                 RaisePropertyChanged(CanTabScrollRightProperty, !CanTabScrollRight, CanTabScrollRight);
 
                 _image.Source = proj.LastImage;
-                _scenesAvailableList.Items = CurrentProject.ScenesAvailable;
-                _camerasAvailableList.Items = CurrentProject.CamerasAvailable;
+                RefreshSceneCameraControls();
             });
         }
 
@@ -566,7 +671,7 @@ namespace LogicReinc.BlendFarm.Windows
             if(!CurrentProject.ScenesAvailable.Contains(scene))
             {
                 CurrentProject.ScenesAvailable.Add(scene);
-                _scenesAvailableList.Items = CurrentProject.ScenesAvailable;
+                RefreshSceneCameraControls();
             }
 
             BlendFarmSettings.Instance.ApplyProjectSettings(CurrentProject.BlendFile, CurrentProject.GetProjectSettings());
@@ -659,18 +764,7 @@ namespace LogicReinc.BlendFarm.Windows
             project.ScenesAvailable.Clear();
             project.ScenesAvailable.AddRange(peekInfo.Scenes);
             project.Scene = peekInfo.SelectedScene;
-            if (project.ScenesAvailable.Count > 0)
-            {
-                _scenesAvailableList.Items = project.ScenesAvailable;
-                _scenesAvailableList.SelectedItem = project.Scene;
-                _scenesAvailableList.IsVisible = true;
-            }
-            if(project.CamerasAvailable.Count > 0)
-            {
-                _camerasAvailableList.Items = project.CamerasAvailable;
-                _camerasAvailableList.SelectedItem = project.Camera;
-                _camerasAvailableList.IsVisible = true;
-            }
+            RefreshSceneCameraControls();
             project.TriggerPropertyChange(
                 nameof(project.CamerasAvailable),
                 nameof(project.Camera),
@@ -679,14 +773,38 @@ namespace LogicReinc.BlendFarm.Windows
             _loadingMeta = false;
         }
 
+        private void RefreshSceneCameraControls()
+        {
+            if (_sceneComboBox == null || _cameraComboBox == null || CurrentProject == null)
+                return;
+
+            _updatingSceneCameraControls = true;
+            try
+            {
+                _sceneComboBox.Items = null;
+                _sceneComboBox.Items = CurrentProject.ScenesAvailable;
+                _sceneComboBox.SelectedItem = CurrentProject.ScenesAvailable.Contains(CurrentProject.Scene)
+                    ? CurrentProject.Scene
+                    : null;
+
+                _cameraComboBox.Items = null;
+                _cameraComboBox.Items = CurrentProject.CamerasAvailable;
+                _cameraComboBox.SelectedItem = CurrentProject.CamerasAvailable.Contains(CurrentProject.Camera)
+                    ? CurrentProject.Camera
+                    : null;
+            }
+            finally
+            {
+                _updatingSceneCameraControls = false;
+            }
+        }
+
         private void SetCurrentProjectScene(string scene)
         {
             bool changed = CurrentProject.Scene != scene;
             CurrentProject.Scene = scene;
-            if (_sceneTextBox != null && _sceneTextBox.Text != scene)
-                _sceneTextBox.Text = scene;
-            if (_scenesAvailableList != null && !Equals(_scenesAvailableList.SelectedItem?.ToString(), scene))
-                _scenesAvailableList.SelectedItem = scene;
+            if (_sceneComboBox != null && !_updatingSceneCameraControls && !Equals(_sceneComboBox.SelectedItem?.ToString(), scene))
+                _sceneComboBox.SelectedItem = scene;
             Console.WriteLine($"UI scene selected: '{CurrentProject.Scene}'");
 
             if (changed && !_loadingMeta)
@@ -706,10 +824,8 @@ namespace LogicReinc.BlendFarm.Windows
         private void SetCurrentProjectCamera(string camera)
         {
             CurrentProject.Camera = camera;
-            if (_cameraTextBox != null && _cameraTextBox.Text != camera)
-                _cameraTextBox.Text = camera;
-            if (_camerasAvailableList != null && !Equals(_camerasAvailableList.SelectedItem?.ToString(), camera))
-                _camerasAvailableList.SelectedItem = camera;
+            if (_cameraComboBox != null && !_updatingSceneCameraControls && !Equals(_cameraComboBox.SelectedItem?.ToString(), camera))
+                _cameraComboBox.SelectedItem = camera;
             Console.WriteLine($"UI camera selected: '{CurrentProject.Camera}'");
             CurrentProject.TriggerPropertyChange(nameof(CurrentProject.Camera));
         }
@@ -725,10 +841,8 @@ namespace LogicReinc.BlendFarm.Windows
         private void ClearCurrentProjectCameraOverride()
         {
             CurrentProject.Camera = "";
-            if (_camerasAvailableList != null)
-                _camerasAvailableList.SelectedItem = null;
-            if (_cameraTextBox != null)
-                _cameraTextBox.Text = "";
+            if (_cameraComboBox != null && !_updatingSceneCameraControls)
+                _cameraComboBox.SelectedItem = null;
             Console.WriteLine("UI camera override cleared after scene change");
             CurrentProject.TriggerPropertyChange(nameof(CurrentProject.Camera));
         }
@@ -888,6 +1002,12 @@ namespace LogicReinc.BlendFarm.Windows
 
         public async Task Render(bool noSync, bool noExcep = false)
         {
+            if (!noSync && HasActiveQueueItems())
+            {
+                StartQueueingProcess();
+                return;
+            }
+
             OpenBlenderProject currentProject = CurrentProject;
 
             if (currentProject.CurrentTask != null)
@@ -1176,21 +1296,30 @@ namespace LogicReinc.BlendFarm.Windows
         {
             if (_queueThread != null)
                 return;
+
+            bool oldQueueing = IsQueueing;
+            IsQueueing = true;
+            Dispatcher.UIThread.InvokeAsync(() => RaisePropertyChanged(IsQueueingProperty, oldQueueing, true));
+
             _queueThread = new Thread(async () =>
             {
-                Task lastTask = null;
                 QueueItem currentItem = null;
-                while (IsQueueing)
+                try
                 {
-                    Thread.Sleep(500);
-                    try
+                    while (IsQueueing)
                     {
+                        Thread.Sleep(500);
                         if (currentItem == null)
                         {
                             QueueItem item = GetNextQueueItem();
+                            if (item == null)
+                            {
+                                IsQueueing = false;
+                                break;
+                            }
+
                             currentItem = item;
-                            if (item != null)
-                                lastTask = item.Execute(this, Manager);
+                            await item.Execute(this, Manager);
                         }
                         else
                         {
@@ -1201,24 +1330,19 @@ namespace LogicReinc.BlendFarm.Windows
                             }
                         }
 
-                        int queueCount = 0;
-                        lock (Queue)
-                            queueCount = Queue.Count(x => x.Active);
-                        if(queueCount != _queueCount)
-                        {
-                            _queueCount = queueCount;
-                            Dispatcher.UIThread.InvokeAsync(() => RaisePropertyChanged(QueueNameProperty, null, QueueName));
-                        }
+                        RefreshQueueName();
                     }
-                    catch (Exception ex)
-                    {
-                        if (!await YesNoWindow.Show(this, "Exception in Queue", $"Exception \"{ex.Message}\" occured in queue. Continue queue process?"))
-                        {
-                            IsQueueing = false;
-                            RaisePropertyChanged(IsQueueingProperty, true, false);
-                            break;
-                        }
-                    }
+                }
+                catch (Exception ex)
+                {
+                    if (!await YesNoWindow.Show(this, "Exception in Queue", $"Exception \"{ex.Message}\" occured in queue. Continue queue process?"))
+                        IsQueueing = false;
+                }
+                finally
+                {
+                    RefreshQueueName();
+                    _queueThread = null;
+                    Dispatcher.UIThread.InvokeAsync(() => RaisePropertyChanged(IsQueueingProperty, true, false));
                 }
             });
             _queueThread.Start();
@@ -1255,6 +1379,7 @@ namespace LogicReinc.BlendFarm.Windows
             lock(Queue)
                 Queue.Add(item);
 
+            RefreshQueueName();
 
         }
         public async Task AddAnimationToQueueNew()
@@ -1272,6 +1397,7 @@ namespace LogicReinc.BlendFarm.Windows
 
             lock (Queue)
                 Queue.Add(item);
+            RefreshQueueName();
         }
         public QueueItem GetNextQueueItem()
         {
@@ -1284,6 +1410,7 @@ namespace LogicReinc.BlendFarm.Windows
                 Queue.Remove(item);
             if (item.Task != null && !item.Completed && item.Active)
                 item.CancelQueueItem();
+            RefreshQueueName();
         }
 
 
@@ -1504,17 +1631,8 @@ namespace LogicReinc.BlendFarm.Windows
             if (!Dispatcher.UIThread.CheckAccess())
                 return;
 
-            string scene = null;
-            if (_sceneTextBox != null)
-                scene = _sceneTextBox.Text;
-            else if (_scenesAvailableList?.SelectedItem != null)
-                scene = _scenesAvailableList.SelectedItem?.ToString();
-
-            string camera = null;
-            if (_cameraTextBox != null)
-                camera = _cameraTextBox.Text;
-            else if (_camerasAvailableList?.SelectedItem != null)
-                camera = _camerasAvailableList.SelectedItem?.ToString();
+            string scene = _sceneComboBox?.SelectedItem?.ToString();
+            string camera = _cameraComboBox?.SelectedItem?.ToString();
 
             if (scene != null)
                 proj.Scene = scene;
