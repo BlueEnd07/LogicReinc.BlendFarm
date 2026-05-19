@@ -7,6 +7,9 @@
         xmlns:convs="clr-namespace:LogicReinc.BlendFarm.Converters;assembly=LogicReinc.BlendFarm"
         Title="BlendFarm by LogicReinc"
         Background="{StaticResource BlendFarmWindowBrush}">
+  <Window.Resources>
+    <convs:LogTypeToColorConverter x:Key="LogTypeToColor" />
+  </Window.Resources>
   <Window.Styles>
     <StyleInclude Source="avares://Avalonia.Themes.Default/Accents/BaseDark.xaml" />
     <Style Selector="TabItem:selected">
@@ -445,15 +448,20 @@
                      ScrollViewer.VerticalScrollBarVisibility="Auto">
               <ListBox.ItemTemplate>
                 <DataTemplate>
-                  <Grid ColumnDefinitions="62,*" Margin="0,0,0,5">
+                  <Grid ColumnDefinitions="20,62,*" Margin="0,0,0,5">
                     <TextBlock Grid.Column="0"
+                               Text="{Binding Icon}"
+                               Foreground="{Binding LogType, Converter={StaticResource LogTypeToColor}}"
+                               FontSize="12"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Grid.Column="1"
                                Text="{Binding Time}"
                                Foreground="{StaticResource BlendFarmMutedTextBrush}"
                                FontFamily="Consolas"
                                FontSize="12" />
-                    <TextBlock Grid.Column="1"
+                    <TextBlock Grid.Column="2"
                                Text="{Binding Message}"
-                               Foreground="{StaticResource BlendFarmTextBrush}"
+                               Foreground="{Binding LogType, Converter={StaticResource LogTypeToColor}}"
                                FontSize="12"
                                TextWrapping="Wrap" />
                   </Grid>
