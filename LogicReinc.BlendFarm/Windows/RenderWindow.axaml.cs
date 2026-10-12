@@ -160,6 +160,8 @@ namespace LogicReinc.BlendFarm.Windows
         private ComboBox _selectOrder = null;
         private ComboBox _selectOutputType = null;
         private TextBox _inputAnimationFileFormat = null;
+        private TextBox _inputOutputTemplate = null;
+        private TextBlock _outputNamePreview = null;
         private ComboBox _sceneComboBox = null;
         private ComboBox _cameraComboBox = null;
         private bool _updatingSceneCameraControls = false;
@@ -370,6 +372,11 @@ namespace LogicReinc.BlendFarm.Windows
             _selectOrder = this.Find<ComboBox>("selectOrder");
             _selectOutputType = this.Find<ComboBox>("selectOutputType");
             _inputAnimationFileFormat = this.Find<TextBox>("inputAnimationFileFormat");
+            _inputOutputTemplate = this.Find<TextBox>("inputOutputTemplate");
+            _outputNamePreview = this.Find<TextBlock>("outputNamePreview");
+            //Live preview of the produced file names while typing
+            _inputAnimationFileFormat?.GetObservable(TextBox.TextProperty).Subscribe(_ => UpdateOutputNamePreview());
+            _inputOutputTemplate?.GetObservable(TextBox.TextProperty).Subscribe(_ => UpdateOutputNamePreview());
             _sceneComboBox = this.Find<ComboBox>("sceneComboBox");
             _cameraComboBox = this.Find<ComboBox>("cameraComboBox");
             UpdateRenderStats();
@@ -1409,7 +1416,23 @@ namespace LogicReinc.BlendFarm.Windows
                     //Captured once so every frame of a run shares the same {date}/{time} tokens.
                     DateTime renderStartTime = DateTime.Now;
 
-                    
+                    //Resume: leave out frames that already have an output file
+                    List<int> skipFrames = new List<int>();
+                    if (currentProject.SkipExistingFrames)
+                    {
+                        skipFrames = OutputNaming.FindExistingFrames(outputDir, currentProject.FrameStart, currentProject.FrameEnd,
+                            (f) => OutputNaming.FormatOutputFileName(animationFileFormat, BuildOutputContext(currentProject, settings, f, renderStartTime)));
+                        completedFrames = skipFrames.Count;
+                        if (skipFrames.Count > 0)
+                            Dispatcher.UIThread.Post(() => AddActivityLog($"Skipping {skipFrames.Count} frame(s) already in the output folder"));
+                        if (skipFrames.Count >= totalFrames)
+                        {
+                            await Dispatcher.UIThread.InvokeAsync(() => this._imageProgress.IsVisible = false);
+                            await MessageWindow.ShowOnUIThread(this, "Nothing to render", "All frames already exist in the output folder.\nDisable 'Skip existing frames' to render them again.");
+                            return;
+                        }
+                    }
+
                     //Create Task
                     RenderTask rtask = Manager.GetAnimationTask(currentProject.BlendFile, currentProject.FrameStart, currentProject.FrameEnd, settings, (task, frame) =>
                     {
@@ -1458,7 +1481,7 @@ namespace LogicReinc.BlendFarm.Windows
                             RecordRenderedFrames(1, frameDuration);
                             AddActivityLog($"Saved frame {task.Frame} as {fileName} ({renderedCount}/{totalFrames})");
                         });
-                    });
+                    }, skipFrames);
                     currentProject.SetRenderTask(rtask);
                     AttachRenderTaskActivityLogging(rtask);
 
@@ -2087,7 +2110,49 @@ namespace LogicReinc.BlendFarm.Windows
             Dispatcher.UIThread.InvokeAsync(() =>
             {
                 RaisePropertyChanged(CurrentProjectProperty, null, CurrentProject);
+                UpdateOutputNamePreview();
             });
+        }
+
+        /// <summary>
+        /// Shows example file names for the animation format and still output template, with problems flagged
+        /// </summary>
+        private void UpdateOutputNamePreview()
+        {
+            if (_outputNamePreview == null)
+                return;
+            OpenBlenderProject proj = CurrentProject;
+            if (proj == null)
+            {
+                _outputNamePreview.Text = "";
+                return;
+            }
+            try
+            {
+                RenderManagerSettings settings = GetSettingsFromUI(proj);
+                DateTime now = DateTime.Now;
+                string animFormat = _inputAnimationFileFormat?.Text ?? proj.AnimationFileFormat;
+                string animation;
+                if (string.IsNullOrEmpty(animFormat) || !animFormat.Contains("#"))
+                    animation = "Animation: add # for the frame number";
+                else if (!OutputNaming.TryValidateTemplate(animFormat, out string animError))
+                    animation = "Animation: " + animError;
+                else
+                    animation = $"Frame {proj.FrameStart} → {OutputNaming.FormatOutputFileName(animFormat, BuildOutputContext(proj, settings, proj.FrameStart, now))}";
+
+                string still;
+                string template = _inputOutputTemplate?.Text ?? proj.OutputTemplate;
+                if (!string.IsNullOrWhiteSpace(template) && !OutputNaming.TryValidateTemplate(template, out string stillError))
+                    still = "Still: " + stillError;
+                else
+                    still = "Still → " + GetDefaultSaveFileName(proj);
+
+                _outputNamePreview.Text = animation + Environment.NewLine + still;
+            }
+            catch
+            {
+                _outputNamePreview.Text = "";
+            }
         }
 
         //Util

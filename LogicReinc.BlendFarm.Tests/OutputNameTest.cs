@@ -96,6 +96,26 @@ namespace LogicReinc.BlendFarm.Tests
         }
 
         [TestMethod]
+        public void FindExistingFramesSkipsMissingAndEmpty()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "bf_existing_" + System.Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                File.WriteAllBytes(Path.Combine(dir, "001.png"), new byte[] { 1 });
+                File.WriteAllBytes(Path.Combine(dir, "003.png"), new byte[] { 1 });
+                File.WriteAllBytes(Path.Combine(dir, "004.png"), new byte[0]); //Interrupted write, render again
+                var found = OutputNaming.FindExistingFrames(dir, 1, 5, f => OutputNaming.ApplyFrameHashes("###.png", f, 1, 5));
+                CollectionAssert.AreEqual(new[] { 1, 3 }, found.ToArray());
+                Assert.AreEqual(0, OutputNaming.FindExistingFrames(Path.Combine(dir, "missing"), 1, 5, f => "x").Count);
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+
+        [TestMethod]
         public void ImageExtensionDetection()
         {
             Assert.IsTrue(OutputNaming.HasImageExtension("Shot_001.png"));

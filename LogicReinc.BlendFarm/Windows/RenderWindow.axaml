@@ -642,6 +642,12 @@
                               <TextBlock Grid.Column="0" Foreground="#B8B8B8" TextAlignment="Left" Margin="0,8,8,8" ToolTip.Tip="Default filename for saved renders. Tokens: {scene} {camera} {engine} {samples} {width} {height} {date} {time} {frame} (unpadded). Use # for the zero-padded frame number.">Output Name</TextBlock>
                               <TextBox Grid.Column="1" x:Name="inputOutputTemplate" Watermark="{}{scene}_###" Text="{Binding CurrentProject.OutputTemplate}" ToolTip.Tip="Default filename for saved renders. Tokens: {scene} {camera} {engine} {samples} {width} {height} {date} {time} {frame} (unpadded). Use # for the zero-padded frame number." />
                             </Grid>
+                            <Grid ColumnDefinitions="88,*" Margin="0,0,0,8">
+                              <StackPanel Grid.Column="1">
+                                <TextBlock x:Name="outputNamePreview" Foreground="#8A90A6" FontSize="12" TextWrapping="Wrap" ToolTip.Tip="Example file names produced by File Format (animation) and Output Name (still)" />
+                                <CheckBox Foreground="#D9DEF0" Margin="0,4,0,0" IsChecked="{Binding CurrentProject.SkipExistingFrames}" ToolTip.Tip="Animation frames whose file already exists in the output folder are not rendered again. Use it to resume an interrupted render.">Skip existing frames</CheckBox>
+                              </StackPanel>
+                            </Grid>
 
                             <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,5">
                               <StackPanel Grid.Column="0">

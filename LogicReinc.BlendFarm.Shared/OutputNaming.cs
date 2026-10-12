@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 
@@ -102,6 +103,24 @@ namespace LogicReinc.BlendFarm.Shared
                 }
             }
             return true;
+        }
+
+        /// <summary>
+        /// Frames in [start, end] whose output file already exists (and isn't empty) in directory.
+        /// Used to resume an interrupted animation. Templates with {date}/{time} never match a previous run.
+        /// </summary>
+        public static List<int> FindExistingFrames(string directory, int start, int end, Func<int, string> fileNameForFrame)
+        {
+            List<int> existing = new List<int>();
+            if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+                return existing;
+            for (int frame = start; frame <= end; frame++)
+            {
+                FileInfo info = new FileInfo(Path.Combine(directory, fileNameForFrame(frame)));
+                if (info.Exists && info.Length > 0)
+                    existing.Add(frame);
+            }
+            return existing;
         }
 
         private static readonly string[] ImageExtensions = new string[]

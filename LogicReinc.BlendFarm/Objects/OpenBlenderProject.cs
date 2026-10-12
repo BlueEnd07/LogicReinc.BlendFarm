@@ -50,6 +50,10 @@ namespace LogicReinc.BlendFarm.Objects
         public string RenderFormat { get; set; } = "PNG";
 
         public bool UseWorkaround { get; set; } = false;
+        /// <summary>
+        /// Don't re-render animation frames whose output file already exists (resume an interrupted render)
+        /// </summary>
+        public bool SkipExistingFrames { get; set; } = false;
 
         public string Scene { get; set; } = "";
         public string Camera { get; set; } = "";
@@ -154,6 +158,7 @@ namespace LogicReinc.BlendFarm.Objects
             FPS = settings?.FPS ?? 0;
             Samples = settings?.Samples ?? 32;
             OutputTemplate = string.IsNullOrEmpty(settings?.OutputTemplate) ? "#" : settings.OutputTemplate;
+            SkipExistingFrames = settings?.SkipExistingFrames ?? false;
         }
         public void SaveAsDefault()
         {
@@ -169,7 +174,8 @@ namespace LogicReinc.BlendFarm.Objects
                 UseWorkaround = UseWorkaround,
                 FPS = FPS,
                 Samples = Samples,
-                OutputTemplate = OutputTemplate
+                OutputTemplate = OutputTemplate,
+                SkipExistingFrames = SkipExistingFrames
             };
             BlendFarmSettings.Instance.Save();
         }
@@ -213,6 +219,7 @@ namespace LogicReinc.BlendFarm.Objects
             public string Denoiser { get; set; }
             public bool UseWorkaround { get; set; }
             public string OutputTemplate { get; set; }
+            public bool SkipExistingFrames { get; set; }
         }
 
     }

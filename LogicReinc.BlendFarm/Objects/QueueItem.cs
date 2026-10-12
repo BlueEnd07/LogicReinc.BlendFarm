@@ -268,6 +268,10 @@ namespace LogicReinc.BlendFarm.Objects
 
                     //Normal Render
                     int endFrame = Settings.Frame + Frames - 1;
+                    //Resume: leave out frames that already have an output file
+                    List<int> skipFrames = (Project?.SkipExistingFrames ?? false)
+                        ? OutputNaming.FindExistingFrames(SaveTo, Settings.Frame, endFrame, (f) => OutputNaming.FormatOutputFileName(FrameFormat, BuildContext(f, Settings.Frame, endFrame)))
+                        : new List<int>();
                     Task = manager.GetAnimationTask(Project.BlendFile, Settings.Frame, endFrame, Settings, (task, frame) =>
                     {
 
@@ -302,7 +306,7 @@ namespace LogicReinc.BlendFarm.Objects
 
                         RefreshInfo();
                         window.RefreshCurrentProject();
-                    });
+                    }, skipFrames);
                     Task.OnProgress += (t, p) =>
                     {
                         if (p >= 1)

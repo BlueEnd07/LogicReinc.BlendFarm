@@ -572,10 +572,13 @@ namespace LogicReinc.BlendFarm.Client
             return CurrentTask;
         }
 
-        public RenderTask GetAnimationTask(string file, int start, int end,RenderManagerSettings settings = null, Action<RenderSubTask, SubTaskResult> onResult = null)
+        public RenderTask GetAnimationTask(string file, int start, int end,RenderManagerSettings settings = null, Action<RenderSubTask, SubTaskResult> onResult = null, IEnumerable<int> skipFrames = null)
         {
             BlendFarmFileSession session = GetOrCreateSession(file);
-            CurrentTask = new AnimationTask(Nodes.ToList(), session.SessionID, Version, session.FileID, start, end, settings);
+            CurrentTask = new AnimationTask(Nodes.ToList(), session.SessionID, Version, session.FileID, start, end, settings)
+            {
+                SkipFrames = new HashSet<int>(skipFrames ?? Enumerable.Empty<int>())
+            };
 
             if (onResult != null)
                 ((AnimationTask)CurrentTask).OnFrameResult += onResult;
