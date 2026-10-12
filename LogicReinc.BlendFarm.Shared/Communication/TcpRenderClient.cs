@@ -37,6 +37,7 @@ namespace LogicReinc.BlendFarm.Shared.Communication
             //Cache?
             _handlers = GetTypeHandlers(GetType());
             Client = client;
+            EnableKeepAlive(client);
 
             Listening = true;
             _listenThread = new Thread(async () =>
@@ -67,6 +68,31 @@ namespace LogicReinc.BlendFarm.Shared.Communication
 
         protected virtual void HandleDisconnected()
         {
+        }
+
+        //Values of SocketOptionName.TcpKeepAliveTime/Interval/RetryCount, not exposed in netstandard2.0
+        private const SocketOptionName TCP_KEEPALIVE_TIME = (SocketOptionName)3;
+        private const SocketOptionName TCP_KEEPALIVE_INTERVAL = (SocketOptionName)17;
+        private const SocketOptionName TCP_KEEPALIVE_RETRYCOUNT = (SocketOptionName)16;
+
+        /// <summary>
+        /// A peer that loses power or network never closes the connection, so without keepalive a
+        /// pending render waits forever. Probe after 30s idle, every 5s, give up after 4 missed probes (~50s).
+        /// </summary>
+        private static void EnableKeepAlive(TcpClient client)
+        {
+            try
+            {
+                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                client.Client.SetSocketOption(SocketOptionLevel.Tcp, TCP_KEEPALIVE_TIME, 30);
+                client.Client.SetSocketOption(SocketOptionLevel.Tcp, TCP_KEEPALIVE_INTERVAL, 5);
+                client.Client.SetSocketOption(SocketOptionLevel.Tcp, TCP_KEEPALIVE_RETRYCOUNT, 4);
+            }
+            catch (Exception ex)
+            {
+                //Older runtimes/platforms may not support the tuning options, plain keepalive still applies
+                Console.WriteLine("Could not configure TCP keepalive: " + ex.Message);
+            }
         }
 
         public static async Task<TcpRenderClient> Connect(string address, int port)
