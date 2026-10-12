@@ -57,17 +57,34 @@ namespace LogicReinc.BlendFarm.Server
             }
         }
 
+        private static readonly object _saveLock = new object();
         public void Save()
         {
-            File.WriteAllText(SystemInfo.RelativeToApplicationDirectory(SETTINGS_PATH), JsonSerializer.Serialize(this));
+            string path = SystemInfo.RelativeToApplicationDirectory(SETTINGS_PATH);
+            string json = JsonSerializer.Serialize(this);
+            //Write to a temp file first so an interrupted save can't leave a corrupt settings file
+            lock (_saveLock)
+            {
+                File.WriteAllText(path + ".tmp", json);
+                File.Move(path + ".tmp", path, true);
+            }
         }
         public static ServerSettings Load()
         {
             string path = SystemInfo.RelativeToApplicationDirectory(SETTINGS_PATH);
-            if (File.Exists(path))
-                return JsonSerializer.Deserialize<ServerSettings>(File.ReadAllText(path));
-            else
+            if (!File.Exists(path))
                 return new ServerSettings();
+            try
+            {
+                return JsonSerializer.Deserialize<ServerSettings>(File.ReadAllText(path)) ?? new ServerSettings();
+            }
+            catch (Exception ex)
+            {
+                //Keep the broken file for recovery and start with defaults instead of failing to launch
+                Console.WriteLine($"Failed to load {SETTINGS_PATH}, using defaults: {ex.Message}");
+                try { File.Copy(path, path + ".corrupt", true); } catch { }
+                return new ServerSettings();
+            }
         }
         #endregion
     }

@@ -376,3 +376,5 @@ packages-microsoft-prod.deb
 /BlenderData/
 /RenderData/
 compressed.zip
+/ClientSettings.*
+/ServerSettings.*
