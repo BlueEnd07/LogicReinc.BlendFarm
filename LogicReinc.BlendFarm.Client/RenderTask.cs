@@ -396,6 +396,12 @@ namespace LogicReinc.BlendFarm.Shared
         {
             ConcurrentQueue<RenderSubTask> subtasks = new ConcurrentQueue<RenderSubTask>(tasks);
             ConcurrentDictionary<RenderSubTask, int> attempts = new ConcurrentDictionary<RenderSubTask, int>();
+            //Subtasks whose result has been accepted, the first copy to finish wins
+            ConcurrentDictionary<RenderSubTask, bool> done = new ConcurrentDictionary<RenderSubTask, bool>();
+            //Nodes currently rendering each subtask (more than one when duplicated) and when it was first started
+            ConcurrentDictionary<RenderSubTask, ConcurrentDictionary<RenderNode, bool>> running = new ConcurrentDictionary<RenderSubTask, ConcurrentDictionary<RenderNode, bool>>();
+            ConcurrentDictionary<RenderSubTask, DateTime> startedAt = new ConcurrentDictionary<RenderSubTask, DateTime>();
+            object claimLock = new object();
             //Subtasks not yet finished or given up on, including those currently rendering
             int remaining = tasks.Length;
 
@@ -406,15 +412,32 @@ namespace LogicReinc.BlendFarm.Shared
                 while (Volatile.Read(ref remaining) > 0 && !Cancelled)
                 {
                     RenderSubTask task = null;
-                    if (!subtasks.TryDequeue(out task))
+                    bool duplicate = false;
+                    lock (claimLock)
+                    {
+                        if (!subtasks.TryDequeue(out task))
+                        {
+                            //Queue is empty but work is still running elsewhere, help out on the oldest
+                            //subtask that only one node is working on, instead of idling until it finishes
+                            task = Settings.DuplicateSlowTasks ? FindTaskToDuplicate(running, startedAt, done) : null;
+                            duplicate = task != null;
+                        }
+                        if (task != null)
+                        {
+                            running.GetOrAdd(task, t => new ConcurrentDictionary<RenderNode, bool>())[node] = true;
+                            startedAt.TryAdd(task, DateTime.Now);
+                        }
+                    }
+                    if (task == null)
                     {
                         Thread.Sleep(100);
                         continue;
                     }
+
                     SubTaskResult taskPart = null;
                     try
                     {
-                        node.UpdateActivity(GetTaskActivityLabel(task), 0);
+                        node.UpdateActivity(GetTaskActivityLabel(task) + (duplicate ? " (helping)" : ""), 0);
                         NotifySubTaskStarted(node, task);
                         taskPart = ExecuteSubTask(node, task);
 
@@ -423,23 +446,56 @@ namespace LogicReinc.BlendFarm.Shared
 
                         //ProcessTile(task, (Bitmap)taskPart.Image, ref g, ref result, ref drawLock);
 
-                        NotifySubTaskFinished(node, task);
-                        onFinished(task, taskPart);
                         nodeFailures = 0;
+                        //Another copy already delivered this subtask, discard ours
+                        if (!done.TryAdd(task, true))
+                            continue;
+                        try
+                        {
+                            NotifySubTaskFinished(node, task);
+                            onFinished(task, taskPart);
+                        }
+                        catch
+                        {
+                            done.TryRemove(task, out _);
+                            throw;
+                        }
                         Interlocked.Decrement(ref remaining);
+
+                        //Stop any other node still rendering this subtask
+                        if (running.TryGetValue(task, out var others))
+                            foreach (RenderNode other in others.Keys.Where(x => x != node && x.CurrentTask == task.ID))
+                                _ = other.CancelRender(SessionID);
                     }
                     catch (TaskCanceledException) when (Cancelled)
                     {
                         return;
                     }
+                    catch (Exception) when (done.ContainsKey(task))
+                    {
+                        //Lost the race to another node (and was cancelled), not a real failure
+                    }
                     catch (Exception ex)
                     {
                         nodeFailures++;
-                        int tries = attempts.AddOrUpdate(task, 1, (t, c) => c + 1);
-                        if (tries < MAX_SUBTASK_ATTEMPTS)
-                            subtasks.Enqueue(task);
-                        else
-                            Interlocked.Decrement(ref remaining); //Give up, Roundup reports it as missing
+                        bool othersRunning = false;
+                        lock (claimLock)
+                        {
+                            if (running.TryGetValue(task, out var runners))
+                            {
+                                runners.TryRemove(node, out _);
+                                othersRunning = !runners.IsEmpty;
+                            }
+                            //If another node is still rendering a copy, let that one finish instead of requeueing
+                            if (!othersRunning)
+                            {
+                                int tries = attempts.AddOrUpdate(task, 1, (t, c) => c + 1);
+                                if (tries < MAX_SUBTASK_ATTEMPTS)
+                                    subtasks.Enqueue(task);
+                                else
+                                    Interlocked.Decrement(ref remaining); //Give up, Roundup reports it as missing
+                            }
+                        }
                         node.UpdateException($"Render fail: {ex.Message}");
                         onException(node, task, ex);
 
@@ -447,10 +503,30 @@ namespace LogicReinc.BlendFarm.Shared
                         if (!node.Connected || nodeFailures >= MAX_NODE_FAILURES)
                             return;
                     }
+                    finally
+                    {
+                        if (running.TryGetValue(task, out var runners))
+                            runners.TryRemove(node, out _);
+                    }
                 }
                 node.UpdateActivity("");
             });
 
+        }
+
+        /// <summary>
+        /// Picks the longest running subtask that only a single node is working on
+        /// </summary>
+        private static RenderSubTask FindTaskToDuplicate(
+            ConcurrentDictionary<RenderSubTask, ConcurrentDictionary<RenderNode, bool>> running,
+            ConcurrentDictionary<RenderSubTask, DateTime> startedAt,
+            ConcurrentDictionary<RenderSubTask, bool> done)
+        {
+            return running
+                .Where(x => x.Value.Count == 1 && !done.ContainsKey(x.Key))
+                .OrderBy(x => startedAt.TryGetValue(x.Key, out DateTime t) ? t : DateTime.MaxValue)
+                .Select(x => x.Key)
+                .FirstOrDefault();
         }
 
         private static string GetTaskActivityLabel(RenderSubTask task)

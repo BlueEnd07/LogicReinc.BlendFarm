@@ -93,6 +93,12 @@ namespace LogicReinc.BlendFarm.Client
         public bool BlenderUpdateBugWorkaround { get; set; } = true;
 
         /// <summary>
+        /// When the queue runs dry, idle nodes also render the slowest in-progress frames/tiles.
+        /// The first copy to finish is used and the other is cancelled, so one slow node can't hold up the end of a render.
+        /// </summary>
+        public bool DuplicateSlowTasks { get; set; } = true;
+
+        /// <summary>
         /// Settings describing render
         /// </summary>
         public RenderPacketModel Render { get; set; }
