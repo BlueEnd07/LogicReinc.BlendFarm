@@ -2,6 +2,7 @@
 using LogicReinc.BlendFarm.Shared.Communication;
 using LogicReinc.BlendFarm.Shared.Communication.RenderNode;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -26,7 +27,8 @@ namespace LogicReinc.BlendFarm.Client
         private TcpRenderClient Socket = null;
         public string Address { get; set; }
         public int Port { get; set; }
-        private Dictionary<string, Action<BlendFarmMessage>> _respHandlers = new Dictionary<string, Action<BlendFarmMessage>>();
+        //Added from sending threads, removed from packet handler threads
+        private ConcurrentDictionary<string, Action<BlendFarmMessage>> _respHandlers = new ConcurrentDictionary<string, Action<BlendFarmMessage>>();
 
         public bool Connected { get; set; }
 
@@ -96,7 +98,7 @@ namespace LogicReinc.BlendFarm.Client
             SemaphoreSlim sema = new SemaphoreSlim(1);
 
             //Releases on callback
-            _respHandlers.Add(reqID, (resp) =>
+            _respHandlers[reqID] = ((resp) =>
             {
                 response = resp;
                 sema.Release();
@@ -110,7 +112,15 @@ namespace LogicReinc.BlendFarm.Client
 
             TaskCompletionSource<BlendFarmMessage> completionSource = new TaskCompletionSource<BlendFarmMessage>();
 
-            await sema.WaitAsync(cancel);
+            try
+            {
+                await sema.WaitAsync(cancel);
+            }
+            finally
+            {
+                //Don't leave a handler behind for a cancelled request
+                _respHandlers.TryRemove(reqID, out _);
+            }
             sema.Dispose();
 
             if (response is BlendFarmDisconnected respDisc)
@@ -144,7 +154,8 @@ namespace LogicReinc.BlendFarm.Client
 
             OnDisconnected?.Invoke(this);
 
-            foreach (var handler in _respHandlers.Values.ToList())
+            foreach (string key in _respHandlers.Keys.ToList())
+                if (_respHandlers.TryRemove(key, out var handler))
                 try
                 {
                     handler(new BlendFarmDisconnected()
@@ -157,7 +168,6 @@ namespace LogicReinc.BlendFarm.Client
                 }
                 catch { }
 
-            _respHandlers.Clear();
 
         }
         #endregion
@@ -172,13 +182,8 @@ namespace LogicReinc.BlendFarm.Client
                 if (OnPacket != null)
                     OnPacket(this, packetObj);
 
-                if (packetObj.ResponseID != null && _respHandlers.ContainsKey(packetObj.ResponseID))
-                {
-                    Action<BlendFarmMessage> respHandler = _respHandlers[packetObj.ResponseID];
-                    _respHandlers.Remove(packetObj.ResponseID);
-
+                if (packetObj.ResponseID != null && _respHandlers.TryRemove(packetObj.ResponseID, out var respHandler))
                     respHandler.Invoke(packetObj);
-                }
             };
             Socket.OnDisconnected += (c) => HandleDisconnected();
 
