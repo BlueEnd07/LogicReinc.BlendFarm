@@ -2,6 +2,7 @@
 using LogicReinc.BlendFarm.Shared;
 using LogicReinc.BlendFarm.Shared.Communication;
 using LogicReinc.BlendFarm.Shared.Communication.RenderNode;
+using LogicReinc.BlendFarm.Shared.Sync;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -632,6 +633,119 @@ namespace LogicReinc.BlendFarm.Client
         /// <param name="sess">An identifier for the session</param>
         /// <param name="fileid">An identifier used to differentiate versions</param>
         /// <returns></returns>
+        /// <summary>
+        /// Delta sync (protocol 8): skips the transfer when the node already has this content,
+        /// otherwise sends only the blocks that differ from the node's previous version of the project
+        /// </summary>
+        public async Task SyncFileDelta(string sess, long fileid, string file, string hash, string projectKey, bool gzip, DeltaPlanner planner)
+        {
+            if (Client == null)
+                throw new InvalidOperationException("Client not connected");
+            try
+            {
+                UpdateActivity("Syncing");
+                long fileSize = new FileInfo(file).Length;
+
+                SyncHashResponse check = await Client.Send<SyncHashResponse>(new SyncHashRequest()
+                {
+                    SessionID = sess,
+                    FileID = fileid,
+                    Hash = hash,
+                    ProjectKey = projectKey,
+                    FileSize = fileSize
+                }, CancellationToken.None);
+                if (!check.Success)
+                    throw new SyncException(check.Message);
+
+                if (!check.Cached)
+                {
+                    bool done = false;
+                    if (check.BaseHash != null && check.Signatures != null && check.Signatures.Length > 0)
+                    {
+                        UpdateActivity("Syncing (comparing)");
+                        List<DeltaOp> ops = await planner.GetOps(check.BaseHash, check.Signatures, check.BlockSize);
+                        done = await SendDelta(sess, fileid, file, hash, projectKey, check.BaseHash, check.BlockSize, gzip, ops, fileSize);
+                        if (!done)
+                            Console.WriteLine($"[{Name}] Delta sync failed, sending full file");
+                    }
+                    if (!done && !await SendDelta(sess, fileid, file, hash, projectKey, null, check.BlockSize, gzip, planner.GetFullOps(), fileSize))
+                        throw new SyncException("Sync failed");
+                }
+
+                UpdateSyncedStatus(sess, await CheckSyncFile(sess, fileid));
+            }
+            finally
+            {
+                UpdateActivity("");
+            }
+        }
+
+        private async Task<bool> SendDelta(string sess, long fileid, string file, string hash, string projectKey, string baseHash, int blockSize, bool gzip, List<DeltaOp> ops, long fileSize)
+        {
+            SyncResponse start = await Client.Send<SyncResponse>(new SyncDeltaRequest()
+            {
+                SessionID = sess,
+                FileID = fileid,
+                Hash = hash,
+                ProjectKey = projectKey,
+                BaseHash = baseHash,
+                BlockSize = blockSize,
+                Compression = gzip ? Compression.GZip : Compression.Raw
+            }, CancellationToken.None);
+            if (!start.Success)
+            {
+                if (baseHash != null)
+                    return false;
+                throw new SyncException(start.Message);
+            }
+
+            const int CHUNK = 8 * 1024 * 1024;
+            long toSend = BlockDelta.LiteralBytes(ops);
+            string label = baseHash != null ? $"changes {FormatSyncSize(toSend)} of {FormatSyncSize(fileSize)}" : FormatSyncSize(fileSize);
+            long sent = 0;
+            using (FileStream str = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024))
+            {
+                foreach (byte[] chunk in DeltaStream.EncodeChunks(str, ops, CHUNK, gzip))
+                {
+                    SyncUploadResponse resp = await Client.Send<SyncUploadResponse>(new SyncDeltaDataRequest()
+                    {
+                        UploadID = start.UploadID,
+                        Data = chunk
+                    }, CancellationToken.None);
+                    if (!resp.Success)
+                    {
+                        if (baseHash != null)
+                            return false;
+                        throw new SyncException(resp.Message);
+                    }
+                    sent = Math.Min(toSend, sent + CHUNK);
+                    double p = toSend > 0 ? Math.Round((double)sent / toSend * 100, 1) : 100;
+                    UpdateActivity($"Syncing {label} ({p}%)", p);
+                }
+            }
+
+            SyncCompleteResponse complete = await Client.Send<SyncCompleteResponse>(new SyncDeltaDoneRequest()
+            {
+                UploadID = start.UploadID
+            }, CancellationToken.None);
+            if (!complete.Success)
+            {
+                if (baseHash != null)
+                    return false;
+                throw new SyncException(complete.Message);
+            }
+            return true;
+        }
+
+        private static string FormatSyncSize(long bytes)
+        {
+            if (bytes >= 1024L * 1024 * 1024)
+                return $"{bytes / 1024.0 / 1024 / 1024:0.0} GB";
+            if (bytes >= 1024 * 1024)
+                return $"{bytes / 1024.0 / 1024:0.0} MB";
+            return $"{bytes / 1024.0:0} KB";
+        }
+
         public async Task<SyncResponse> SyncFile(string sess, long fileid, Stream file, Compression compression)
         {
             if (Client == null)

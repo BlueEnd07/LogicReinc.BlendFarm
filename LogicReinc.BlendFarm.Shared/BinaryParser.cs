@@ -258,7 +258,8 @@ namespace LogicReinc.BlendFarm.Shared
         }
         public static void SerializeByteArray(BinaryWriter writer, object obj)
         {
-            byte[] arr = (byte[])obj;
+            //Null is sent as an empty array, there's no null marker for byte arrays
+            byte[] arr = (byte[])obj ?? new byte[0];
 
             writer.Write(arr.Length);
             writer.Write(arr, 0, arr.Length);

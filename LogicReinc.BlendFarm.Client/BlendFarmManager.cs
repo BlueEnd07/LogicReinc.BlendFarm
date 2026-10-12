@@ -1,6 +1,7 @@
 ﻿using LogicReinc.BlendFarm.Client.Tasks;
 using LogicReinc.BlendFarm.Shared;
 using LogicReinc.BlendFarm.Shared.Communication.RenderNode;
+using LogicReinc.BlendFarm.Shared.Sync;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -36,6 +37,17 @@ namespace LogicReinc.BlendFarm.Client
 
         public bool Networked { get; set; }
 
+        /// <summary>
+        /// SHA-256 of LocalBlendFile, and the FileID it was computed for
+        /// </summary>
+        public string ContentHash { get; set; }
+        public long ContentHashFileID { get; set; }
+
+        /// <summary>
+        /// Stable id of the project across sessions and restarts, nodes use it to find the previous version as delta base
+        /// </summary>
+        public string ProjectKey { get; }
+
         public BlendFarmFileSession(string file, string localDir, string sessionID = null)
         {
             BlendFile = file;
@@ -43,6 +55,7 @@ namespace LogicReinc.BlendFarm.Client
                 SessionID = sessionID;
             LocalBlendFile = Path.GetFullPath(Path.Combine(localDir, SessionID + ".blend"));
             FileID = new FileInfo(LocalBlendFile).LastWriteTime.Ticks;
+            ProjectKey = Shared.Sync.ContentHash.ComputeString(Environment.MachineName + "|" + Path.GetFullPath(file).ToLowerInvariant());
         }
     }
 
@@ -336,6 +349,25 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// Updates the file version and copy it to a local directory
         /// </summary>
+        /// <summary>
+        /// Blender's "Compress" save option writes zstd (magic 28 B5 2F FD)
+        /// </summary>
+        private static bool IsZstdCompressed(string path)
+        {
+            try
+            {
+                byte[] magic = new byte[4];
+                using (FileStream str = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    if (str.Read(magic, 0, 4) != 4)
+                        return false;
+                return magic[0] == 0x28 && magic[1] == 0xB5 && magic[2] == 0x2F && magic[3] == 0xFD;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public long UpdateFileVersion(BlendFarmFileSession session, bool shared)
         {
             long oldID = session.FileID;
@@ -504,50 +536,34 @@ namespace LogicReinc.BlendFarm.Client
                 UpdateFileVersion(session, false);
 
                 Syncing = true;
-                //Optimize
                 long id = session.FileID;
 
-                //Send the snapshot copy, not the live file the user may be saving
+                //Send the snapshot copy, not the live file the user may be saving.
+                //Hash it once per version: nodes that already have this content skip the transfer entirely
                 string toSend = session.LocalBlendFile;
+                if (session.ContentHash == null || session.ContentHashFileID != id)
+                {
+                    Nodes.ToList().ForEach(x => x.UpdateActivity("Checking file.."));
+                    session.ContentHash = await Task.Run(() => ContentHash.ComputeFile(toSend));
+                    session.ContentHashFileID = id;
+                }
+                //Compressing a .blend Blender already compressed only costs time
+                bool useGZip = compress && !IsZstdCompressed(toSend);
 
-                if(compress)
-                    using (FileStream mem = new FileStream("compressed.zip", FileMode.Create))
-                    {
-                        byte[] buffer = new byte[4096];
-
-                        await Task.Run(() =>
-                        {
-                            Nodes.ToList().ForEach(x => x.UpdateActivity("Compressing.."));
-
-                            using (FileStream str = new FileStream(session.LocalBlendFile, FileMode.Open, FileAccess.Read, FileShare.Read))
-                            using (Stream zip = new GZipStream(mem, CompressionMode.Compress, true))
-                            {
-                                int read = 0;
-                                while ((read = str.Read(buffer, 0, buffer.Length)) > 0)
-                                    zip.Write(buffer, 0, read);
-                            }
-
-                            Nodes.ToList().ForEach(x => x.UpdateActivity(""));
-                        });
-                        toSend = "compressed.zip";
-                    }
+                //Shared by all nodes, nodes with the same base version reuse one delta computation
+                DeltaPlanner planner = new DeltaPlanner(toSend);
                 await Task.WhenAll(Nodes.ToList().Select(async node =>
                 {
-                    SyncResponse resp = null;
                     try
                     {
-                        using(FileStream str = new FileStream(toSend, FileMode.Open, FileAccess.Read, FileShare.Read))
-                            resp = await node.SyncFile(session.SessionID, id, str, (compress) ? Compression.GZip : Compression.Raw);
+                        await node.SyncFileDelta(session.SessionID, id, toSend, session.ContentHash, session.ProjectKey, useGZip, planner);
                     }
                     catch (Exception ex)
                     {
                         node.UpdateException(ex.Message);
                         return;
                     }
-                    if (resp == null)
-                        node.LastStatus = $"Sync Failed: No version..";
-                    else
-                        node.LastStatus = $"Ready";
+                    node.LastStatus = $"Ready";
                 }).ToArray());
             }
             finally

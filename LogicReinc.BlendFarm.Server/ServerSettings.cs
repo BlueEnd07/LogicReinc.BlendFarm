@@ -34,6 +34,15 @@ namespace LogicReinc.BlendFarm.Server
         public string BlenderFiles = "BlenderFiles";
 
         /// <summary>
+        /// Synced .blend files kept by content, survives restarts so unchanged files never upload again
+        /// </summary>
+        public string BlendCache { get; set; } = "BlendCache";
+        /// <summary>
+        /// Size limit of the blend cache in GB, least recently used files are removed first. 0 = no limit
+        /// </summary>
+        public double BlendCacheGB { get; set; } = 30;
+
+        /// <summary>
         /// Prevents software from replacing the .py if it changed
         /// </summary>
         public bool BypassScriptUpdate { get; set; } = false;

@@ -2,6 +2,7 @@
 using LogicReinc.BlendFarm.Shared.Communication;
 using LogicReinc.BlendFarm.Shared.Communication.RenderNode;
 using LogicReinc.BlendFarm.Shared.Exceptions;
+using LogicReinc.BlendFarm.Shared.Sync;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -28,6 +29,7 @@ namespace LogicReinc.BlendFarm.Server
         private static Dictionary<string, int> _failedAuthIps = new Dictionary<string, int>();
 
         private Dictionary<string, FileUpload> _uploads = new Dictionary<string, FileUpload>();
+        private Dictionary<string, DeltaUpload> _deltaUploads = new Dictionary<string, DeltaUpload>();
         private BlenderManager _blender = null;
 
         private List<string> sessions = new List<string>();
@@ -67,6 +69,19 @@ namespace LogicReinc.BlendFarm.Server
                 Program.OnConsoleOutput -= HandleConsoleOutput;
             //SessionData.CleanUp(sessions.ToArray());
             _ = SessionData.CleanUpDelayed(10000, sessions.ToArray());
+            //Release file handles of interrupted transfers
+            lock (_deltaUploads)
+            {
+                foreach (DeltaUpload upload in _deltaUploads.Values)
+                    upload.Abort();
+                _deltaUploads.Clear();
+            }
+            lock (_uploads)
+            {
+                foreach (FileUpload upload in _uploads.Values)
+                    try { upload.Dispose(); } catch { }
+                _uploads.Clear();
+            }
             OnDisconnect?.Invoke(this);
             if (_isRendering)
             {
@@ -252,6 +267,7 @@ namespace LogicReinc.BlendFarm.Server
                         throw new InvalidOperationException($"File does not exist [{sessionPath}]");
 
                     session.IsNetworked = true;
+                    session.CacheHash = null;
                     session.NetworkedPath = sessionPath;
                     session.UpdatedFile(req.FileID);
                 }
@@ -291,6 +307,7 @@ namespace LogicReinc.BlendFarm.Server
                 if (req.FileID != session.FileID)
                 {
                     Directory.CreateDirectory(SystemInfo.RelativeToApplicationDirectory(ServerSettings.Instance.BlenderFiles));
+                    session.CacheHash = null; //Legacy upload writes its own per-session copy
                     _uploads.Add(uploadID, new FileUpload(session.GetBlendFilePath(), req, req.Compression));
                     session.UpdatingFile();
                     session.IsNetworked = false;
@@ -405,6 +422,193 @@ namespace LogicReinc.BlendFarm.Server
                     Success = false,
                     Message = "Failed due to exception:" + ex.Message
                 };
+            }
+        }
+
+        /// <summary>
+        /// Handler syncHash, checks the blend cache for the content and otherwise offers a delta base
+        /// </summary>
+        [BlendFarmHeader("syncHash")]
+        public SyncHashResponse Packet_SyncHash(SyncHashRequest req)
+        {
+            EnsureAuthenticated();
+            try
+            {
+                if (!ContentHash.IsValid(req.Hash))
+                    throw new ArgumentException("Invalid content hash");
+                if (!sessions.Contains(req.SessionID))
+                    sessions.Add(req.SessionID);
+                SessionData session = SessionData.GetOrCreate(req.SessionID);
+                session.InUse = true;
+
+                if (BlendCache.Has(req.Hash))
+                {
+                    session.UseCachedFile(req.Hash, req.FileID);
+                    Console.WriteLine($"Sync: {req.SessionID} already cached ({req.Hash.Substring(0, 12)})");
+                    return new SyncHashResponse() { Success = true, Cached = true };
+                }
+
+                //Previous version of the same project, or what this session last rendered
+                string baseHash = BlendCache.GetProjectBase(req.ProjectKey);
+                if (baseHash == null && session.CacheHash != null && BlendCache.Has(session.CacheHash))
+                    baseHash = session.CacheHash;
+
+                if (baseHash == null)
+                    return new SyncHashResponse() { Success = true, BlockSize = BlockDelta.DEFAULT_BLOCK_SIZE };
+
+                return new SyncHashResponse()
+                {
+                    Success = true,
+                    BaseHash = baseHash,
+                    BlockSize = BlockDelta.DEFAULT_BLOCK_SIZE,
+                    Signatures = BlendCache.GetSignatures(baseHash, BlockDelta.DEFAULT_BLOCK_SIZE)
+                };
+            }
+            catch (Exception ex)
+            {
+                return new SyncHashResponse() { Success = false, Message = "Failed due to exception:" + ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Handler syncDelta, starts rebuilding a file from a cached base (or from nothing)
+        /// </summary>
+        [BlendFarmHeader("syncDelta")]
+        public SyncResponse Packet_SyncDelta(SyncDeltaRequest req)
+        {
+            EnsureAuthenticated();
+            try
+            {
+                if (!ContentHash.IsValid(req.Hash))
+                    throw new ArgumentException("Invalid content hash");
+                if (req.BaseHash != null && !BlendCache.Has(req.BaseHash))
+                    throw new InvalidOperationException("Delta base is no longer cached");
+                if (req.BlockSize <= 0 || req.BlockSize > 16 * 1024 * 1024)
+                    throw new ArgumentException("Invalid block size");
+                if (!sessions.Contains(req.SessionID))
+                    sessions.Add(req.SessionID);
+                SessionData.GetOrCreate(req.SessionID).InUse = true;
+
+                string uploadID = Guid.NewGuid().ToString();
+                DeltaUpload upload = new DeltaUpload(req, uploadID);
+                lock (_deltaUploads)
+                    _deltaUploads.Add(uploadID, upload);
+                return new SyncResponse() { Success = true, UploadID = uploadID };
+            }
+            catch (Exception ex)
+            {
+                return new SyncResponse() { Success = false, Message = "Failed due to exception:" + ex.Message };
+            }
+        }
+
+        [BlendFarmHeader("syncDeltaData")]
+        public SyncUploadResponse Packet_SyncDeltaData(SyncDeltaDataRequest req)
+        {
+            EnsureAuthenticated();
+            DeltaUpload upload = null;
+            lock (_deltaUploads)
+                _deltaUploads.TryGetValue(req.UploadID ?? "", out upload);
+            if (upload == null)
+                return new SyncUploadResponse() { Success = false, Message = "Upload does not exist" };
+            try
+            {
+                lock (upload)
+                    upload.Applier.ApplyChunk(req.Data);
+                return new SyncUploadResponse() { Success = true };
+            }
+            catch (Exception ex)
+            {
+                lock (_deltaUploads)
+                    _deltaUploads.Remove(req.UploadID);
+                upload.Abort();
+                return new SyncUploadResponse() { Success = false, Message = "Failed due to exception:" + ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Handler syncDeltaDone, verifies the rebuilt file against its hash and adds it to the cache
+        /// </summary>
+        [BlendFarmHeader("syncDeltaDone")]
+        public SyncCompleteResponse Packet_SyncDeltaDone(SyncDeltaDoneRequest req)
+        {
+            EnsureAuthenticated();
+            DeltaUpload upload = null;
+            lock (_deltaUploads)
+            {
+                if (_deltaUploads.TryGetValue(req.UploadID ?? "", out upload))
+                    _deltaUploads.Remove(req.UploadID);
+            }
+            if (upload == null)
+                return new SyncCompleteResponse() { Success = false, Message = "Upload does not exist" };
+            try
+            {
+                string hash;
+                lock (upload)
+                    hash = upload.Finish();
+                if (hash != upload.Request.Hash)
+                {
+                    upload.Abort();
+                    return new SyncCompleteResponse() { Success = false, Message = $"Rebuilt file does not match (hash {hash.Substring(0, 12)}), resend in full" };
+                }
+
+                BlendCache.Add(upload.TempPath, hash, upload.Request.ProjectKey, SessionData.GetCacheHashesInUse());
+                SessionData session = SessionData.GetOrCreate(upload.Request.SessionID);
+                session.InUse = true;
+                session.UseCachedFile(hash, upload.Request.FileID);
+                Console.WriteLine($"Sync: {upload.Request.SessionID} received {(upload.Request.BaseHash != null ? "delta" : "full file")} ({hash.Substring(0, 12)})");
+                return new SyncCompleteResponse() { Success = true };
+            }
+            catch (Exception ex)
+            {
+                upload.Abort();
+                return new SyncCompleteResponse() { Success = false, Message = "Failed due to exception:" + ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// An incoming delta/full transfer being rebuilt into a temp file
+        /// </summary>
+        private class DeltaUpload
+        {
+            public SyncDeltaRequest Request { get; }
+            public string TempPath { get; }
+            public DeltaApplier Applier { get; }
+            private FileStream _base;
+            private FileStream _output;
+
+            public DeltaUpload(SyncDeltaRequest req, string uploadID)
+            {
+                Request = req;
+                TempPath = BlendCache.GetTempPath(uploadID);
+                if (req.BaseHash != null)
+                    _base = new FileStream(BlendCache.GetPath(req.BaseHash), FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024);
+                _output = new FileStream(TempPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024);
+                Applier = new DeltaApplier(_base, _output, req.BlockSize, req.Compression == Compression.GZip);
+            }
+
+            /// <summary>
+            /// Closes the files, returns the hash of the rebuilt file
+            /// </summary>
+            public string Finish()
+            {
+                string hash = Applier.FinishHash();
+                Close();
+                return hash;
+            }
+
+            public void Abort()
+            {
+                Close();
+                try { File.Delete(TempPath); } catch { }
+            }
+
+            private void Close()
+            {
+                try { _output?.Dispose(); } catch { }
+                try { _base?.Dispose(); } catch { }
+                try { Applier.Dispose(); } catch { }
+                _output = null;
+                _base = null;
             }
         }
 
