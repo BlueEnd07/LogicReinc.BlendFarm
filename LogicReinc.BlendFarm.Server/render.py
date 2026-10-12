@@ -19,10 +19,9 @@ import time
 from multiprocessing import cpu_count
 
 isPre3 = bpy.app.version < (3,0,0);
-isPreEeveeRename = bpy.app.version < (4, 2, 0);
 
 if(isPre3):
-    print('Detected Blender >= 3.0.0\n');
+    print('Detected Blender < 3.0.0\n');
 
 argv = sys.argv
 argv = argv[argv.index("--") + 1:]
@@ -118,7 +117,8 @@ def renderWithSettings(renderSettings, id, path):
 
         # Set threading
         scn.render.threads_mode = 'FIXED';
-        scn.render.threads = max(cpu_count(), int(renderSettings["Cores"]));
+        cores = int(renderSettings["Cores"]);
+        scn.render.threads = min(cpu_count(), cores) if cores > 0 else cpu_count();
         
         if (isPre3):
             scn.render.tile_x = int(renderSettings["TileWidth"]);
@@ -191,11 +191,11 @@ def renderWithSettings(renderSettings, id, path):
                 scn.cycles.device = 'GPU';
                 print("Use OpenCL (GPU)");
             elif renderType == 5: #HIP
-                useDevices("HIP", True, False);
+                useDevices("HIP", True, True);
                 scn.cycles.device = 'GPU';
                 print("Use HIP");
             elif renderType == 6: #HIP (GPU Only)
-                useDevices("HIP", True, True);
+                useDevices("HIP", True, False);
                 scn.cycles.device = 'GPU';
                 print("Use HIP (GPU)");
             elif renderType == 7: #METAL
@@ -238,12 +238,12 @@ def renderWithSettings(renderSettings, id, path):
             scn.render.fps = fps;
 
         if(engine == 1): #Eevee
-            if(isPreEeveeRename):
-                print("Using EEVEE");
-                scn.render.engine = "BLENDER_EEVEE";
-            else:
-                print("Using EEVEE_NEXT");
-                scn.render.engine = "BLENDER_EEVEE_NEXT";
+            #4.2-4.5 call it BLENDER_EEVEE_NEXT, older and 5.0+ use BLENDER_EEVEE
+            engines = [e.identifier for e in scn.render.bl_rna.properties['engine'].enum_items];
+            eeveeName = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in engines else "BLENDER_EEVEE";
+            print("Using " + eeveeName);
+            scn.render.engine = eeveeName;
+            scn.eevee.taa_render_samples = int(renderSettings["Samples"]);
         else:
             scn.render.engine = "CYCLES";
 
