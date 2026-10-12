@@ -151,6 +151,11 @@ namespace LogicReinc.BlendFarm.Windows
         private TextBlock _statsAverageFrame = null;
         private TextBlock _renderProgressSummary = null;
         private ListBox _activityLogList = null;
+        private Border _toastOverlay = null;
+        private TextBlock _toastTitle = null;
+        private TextBlock _toastBody = null;
+        private TextBlock _toastIcon = null;
+        private DispatcherTimer _toastTimer = null;
         private ComboBox _selectStrategy = null;
         private ComboBox _selectOrder = null;
         private ComboBox _selectOutputType = null;
@@ -357,6 +362,10 @@ namespace LogicReinc.BlendFarm.Windows
             _statsAverageFrame = this.Find<TextBlock>("statsAverageFrame");
             _renderProgressSummary = this.Find<TextBlock>("renderProgressSummary");
             _activityLogList = this.Find<ListBox>("activityLogList");
+            _toastOverlay = this.Find<Border>("toastOverlay");
+            _toastTitle = this.Find<TextBlock>("toastTitle");
+            _toastBody = this.Find<TextBlock>("toastBody");
+            _toastIcon = this.Find<TextBlock>("toastIcon");
             _selectStrategy = this.Find<ComboBox>("selectStrategy");
             _selectOrder = this.Find<ComboBox>("selectOrder");
             _selectOutputType = this.Find<ComboBox>("selectOutputType");
@@ -1308,6 +1317,7 @@ namespace LogicReinc.BlendFarm.Windows
                         RecordRenderedFrames(1, watch.Elapsed);
                         this._imageProgress.IsVisible = false;
                         AddActivityLog($"Render completed in {FormatDuration(watch.Elapsed)}", ActivityLogType.Success);
+                        NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, true, false, watch.Elapsed, null));
                     });
                     watch.Stop();
 
@@ -1322,6 +1332,7 @@ namespace LogicReinc.BlendFarm.Windows
                         AddActivityLog($"Render failed: {ex.Message}", ActivityLogType.Error);
                         if (_animationEstimatedRemaining != null && _animationProgressPanel?.IsVisible == true)
                             _animationEstimatedRemaining.Text = "Failed";
+                        NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, false, false, TimeSpan.Zero, ex.Message));
                     });
 
                     if(!noExcep)
@@ -1352,10 +1363,9 @@ namespace LogicReinc.BlendFarm.Windows
                 await MessageWindow.Show(this, "Invalid file format", "File format should contain a '#' for frame number");
                 return;
             }
-            string validAnimationFileName = currentProject.AnimationFileFormat.Replace("#", "");
-            if(Path.GetInvalidFileNameChars().Any(x=>validAnimationFileName.Contains(x)))
+            if (!OutputNaming.TryValidateTemplate(currentProject.AnimationFileFormat, out string animationFormatError))
             {
-                await MessageWindow.Show(this, "Invalid file format", "File name for animation frames contains illegal characters");
+                await MessageWindow.Show(this, "Invalid file format", animationFormatError);
                 return;
             }
             string animationFileFormat = currentProject.AnimationFileFormat;
@@ -1389,6 +1399,8 @@ namespace LogicReinc.BlendFarm.Windows
                     int completedFrames = 0;
                     int totalFrames = Math.Max(1, currentProject.FrameEnd - currentProject.FrameStart + 1);
                     DateTime lastFrameFinishedAt = DateTime.UtcNow;
+                    //Captured once so every frame of a run shares the same {date}/{time} tokens.
+                    DateTime renderStartTime = DateTime.Now;
 
                     
                     //Create Task
@@ -1400,7 +1412,7 @@ namespace LogicReinc.BlendFarm.Windows
                         TimeSpan frameDuration = now - lastFrameFinishedAt;
                         lastFrameFinishedAt = now;
 
-                        string fileName = Statics.FormatAnimationFrameFileName(animationFileFormat, task.Frame, currentProject.FrameStart, currentProject.FrameEnd);
+                        string fileName = OutputNaming.FormatOutputFileName(animationFileFormat, BuildOutputContext(currentProject, settings, task.Frame, renderStartTime));
                         string filePath = Path.Combine(outputDir, fileName);
 
                         try
@@ -1471,6 +1483,8 @@ namespace LogicReinc.BlendFarm.Windows
                             AddActivityLog($"Animation render completed in {FormatDuration(watch.Elapsed)}", ActivityLogType.Success);
                         else
                             AddActivityLog("Animation render stopped before completion", ActivityLogType.Warning);
+                        if (success)
+                            NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, true, true, watch.Elapsed, null));
                     });
                     if (success)
                         _ = MessageWindow.ShowOnUIThread(this, "Animation Rendered", $"Frames {currentProject.FrameStart} to {currentProject.FrameEnd} rendered.\nLocated at {outputDir}.");
@@ -1488,6 +1502,7 @@ namespace LogicReinc.BlendFarm.Windows
                         AddActivityLog($"Animation render failed: {ex.Message}", ActivityLogType.Error);
                         if (_animationEstimatedRemaining != null && _animationProgressPanel?.IsVisible == true)
                             _animationEstimatedRemaining.Text = "Failed";
+                        NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, false, true, TimeSpan.Zero, ex.Message));
                     });
 
                     await MessageWindow.ShowOnUIThread(this, "Failed Render", "Failed render due to:" + ex.Message);
@@ -1648,12 +1663,258 @@ namespace LogicReinc.BlendFarm.Windows
             RefreshQueueName();
         }
 
+        //Persists the still-queued items to disk.
+        public void SaveQueue()
+        {
+            List<QueueItemDTO> dtos;
+            lock (Queue)
+                dtos = Queue.Where(x => x.IsQueued).Select(x => x.ToDTO()).ToList();
+            BlendFarmSettings.Instance.RenderQueue = dtos;
+            BlendFarmSettings.Instance.Save();
+            AddActivityLog($"Saved {dtos.Count} queued item(s)", ActivityLogType.Success);
+        }
+
+        //Rebuilds queued items from disk, re-opening projects as needed.
+        public void LoadQueue()
+        {
+            List<QueueItemDTO> dtos = BlendFarmSettings.Instance.RenderQueue ?? new List<QueueItemDTO>();
+            int loaded = 0;
+            int skipped = 0;
+            foreach (QueueItemDTO dto in dtos)
+            {
+                if (string.IsNullOrEmpty(dto.BlendFile))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                OpenBlenderProject proj = Projects.FirstOrDefault(x => string.Equals(x.BlendFile, dto.BlendFile, StringComparison.OrdinalIgnoreCase));
+                if (proj == null)
+                {
+                    if (!File.Exists(dto.BlendFile))
+                    {
+                        AddActivityLog($"Queue item skipped, blend file not found: {dto.BlendFile}", ActivityLogType.Warning);
+                        skipped++;
+                        continue;
+                    }
+                    proj = LoadProject(dto.BlendFile);
+                    if (dto.UseNetworkedPath)
+                    {
+                        proj.UseNetworkedPath = true;
+                        proj.NetworkPathWindows = dto.NetworkPathWindows;
+                        proj.NetworkPathLinux = dto.NetworkPathLinux;
+                        proj.NetworkPathMacOS = dto.NetworkPathMacOS;
+                    }
+                }
+
+                QueueItem item = QueueItem.FromDTO(this, proj, dto);
+                lock (Queue)
+                    Queue.Add(item);
+                loaded++;
+            }
+            RefreshQueueName();
+            AddActivityLog($"Loaded {loaded} queued item(s)" + (skipped > 0 ? $", {skipped} skipped" : ""),
+                loaded > 0 ? ActivityLogType.Success : ActivityLogType.Info);
+        }
+
+        //Removes all items that aren't currently rendering.
+        public void ClearQueue()
+        {
+            lock (Queue)
+            {
+                for (int i = Queue.Count - 1; i >= 0; i--)
+                    if (Queue[i].IsDeletable)
+                        Queue.RemoveAt(i);
+            }
+            RefreshQueueName();
+            AddActivityLog("Cleared queue", ActivityLogType.Info);
+        }
+
+        public void MoveQueueItemUp(QueueItem item) => MoveQueueItem(item, -1);
+        public void MoveQueueItemDown(QueueItem item) => MoveQueueItem(item, 1);
+        private void MoveQueueItem(QueueItem item, int direction)
+        {
+            lock (Queue)
+            {
+                int i = Queue.IndexOf(item);
+                if (i < 0)
+                    return;
+                int j = i + direction;
+                if (j < 0 || j >= Queue.Count)
+                    return;
+                //Only reorder among queued (not running/completed) items.
+                if (!Queue[i].IsQueued || !Queue[j].IsQueued)
+                    return;
+                Queue.Move(i, j);
+            }
+            RefreshQueueName();
+        }
+
+        public void DuplicateQueueItem(QueueItem item)
+        {
+            if (item == null)
+                return;
+            QueueItem copy = QueueItem.FromDTO(this, item.Project, item.ToDTO());
+            lock (Queue)
+            {
+                int i = Queue.IndexOf(item);
+                if (i < 0)
+                    Queue.Add(copy);
+                else
+                    Queue.Insert(i + 1, copy);
+            }
+            RefreshQueueName();
+        }
+
+        private bool _isBenchmarking = false;
+
+        public async void BenchmarkNode(RenderNode node)
+        {
+            if (node == null)
+                return;
+            await BenchmarkNodesInternal(new List<RenderNode> { node });
+        }
+
+        public async void BenchmarkAll()
+        {
+            List<RenderNode> connected;
+            lock (Nodes)
+                connected = Nodes.Where(x => x.Connected).ToList();
+            await BenchmarkNodesInternal(connected);
+        }
+
+        //Renders a small fixed workload on each node to score it (pixels/ms). Runs nodes
+        //sequentially so they don't contend and skew each other's timing.
+        private async Task BenchmarkNodesInternal(List<RenderNode> nodes)
+        {
+            if (_isBenchmarking)
+                return;
+            if (IsRendering || HasActiveQueueItems())
+            {
+                await MessageWindow.Show(this, "Benchmark", "Cannot benchmark while a render or queue is active.");
+                return;
+            }
+
+            OpenBlenderProject project = CurrentProject;
+            if (project == null || string.IsNullOrEmpty(project.BlendFile) || !File.Exists(project.BlendFile))
+            {
+                await MessageWindow.Show(this, "Benchmark", "Open a valid .blend project before benchmarking.");
+                return;
+            }
+
+            List<RenderNode> targets = nodes?.Where(x => x != null && x.Connected).ToList() ?? new List<RenderNode>();
+            if (targets.Count == 0)
+            {
+                AddActivityLog("No connected nodes to benchmark", ActivityLogType.Warning);
+                return;
+            }
+
+            _isBenchmarking = true;
+            try
+            {
+                AddActivityLog($"Benchmark started for {targets.Count} node(s)", ActivityLogType.Info);
+                await SyncProjectBeforeRender(project);
+
+                RenderManagerSettings baseSettings = GetSettingsFromUI(project);
+                List<(RenderNode node, decimal score)> results = new List<(RenderNode, decimal)>();
+
+                foreach (RenderNode node in targets)
+                {
+                    if (!node.Connected)
+                        continue;
+                    try
+                    {
+                        AddActivityLog($"Benchmarking {node.NodeTitle}...", ActivityLogType.Info);
+                        RenderManagerSettings bench = new RenderManagerSettings()
+                        {
+                            Frame = baseSettings.Frame,
+                            Scene = baseSettings.Scene,
+                            Camera = baseSettings.Camera,
+                            Engine = baseSettings.Engine,
+                            RenderFormat = "PNG",
+                            Strategy = RenderStrategy.SplitHorizontal,
+                            Order = baseSettings.Order,
+                            OutputWidth = 256,
+                            OutputHeight = 256,
+                            ChunkWidth = 1m,
+                            ChunkHeight = 1m,
+                            Samples = 16,
+                            Denoiser = "",
+                            UseAutoPerformance = false //don't let a cold score skew a single-node split
+                        };
+
+                        BlendFarmFileSession session = Manager.GetOrCreateSession(project.BlendFile);
+                        RenderTask task = RenderTask.GetImageRenderTask(new List<RenderNode> { node }, session.SessionID, Manager.Version, session.FileID, bench);
+                        task.FileID = Manager.UpdateFileVersion(project.BlendFile, project.UseNetworkedPath);
+
+                        await task.Render();
+
+                        decimal score = node.PerformanceScorePP;
+                        results.Add((node, score));
+                        AddActivityLog($"{node.NodeTitle} scored {score:0.####} px/ms", ActivityLogType.Success);
+                        PersistNodePerformance(node);
+                    }
+                    catch (Exception ex)
+                    {
+                        AddActivityLog($"Benchmark failed for {node.NodeTitle}: {ex.Message}", ActivityLogType.Error);
+                    }
+                }
+
+                List<(RenderNode node, decimal score)> ranked = results.OrderByDescending(r => r.score).ToList();
+                for (int i = 0; i < ranked.Count; i++)
+                    AddActivityLog($"#{i + 1}: {ranked[i].node.NodeTitle} ({ranked[i].score:0.####} px/ms)", ActivityLogType.Info);
+
+                await Dispatcher.UIThread.InvokeAsync(() => UpdateRenderStats());
+            }
+            finally
+            {
+                _isBenchmarking = false;
+            }
+        }
+
+        private void PersistNodePerformance(RenderNode node)
+        {
+            if (node == null || string.IsNullOrEmpty(node.Name))
+                return;
+
+            BlendFarmSettings settings = BlendFarmSettings.Instance;
+            if (!settings.PastClients.ContainsKey(node.Name))
+            {
+                settings.PastClients[node.Name] = new BlendFarmSettings.HistoryClient()
+                {
+                    Name = node.Name,
+                    Address = node.Address
+                };
+            }
+            settings.PastClients[node.Name].PerformanceScorePP = node.PerformanceScorePP;
+            settings.Save();
+        }
+
 
         public async Task SaveImage()
         {
-            string result = await OpenSaveFileDialog("Save current BlendFarm render", "render.png");
+            string result = await OpenSaveFileDialog("Save current BlendFarm render", GetDefaultSaveFileName(CurrentProject));
             if (result != null && CurrentProject.LastImage != null)
                 CurrentProject.LastImage.Save(result);
+        }
+
+        //Expands the project's output template into a default filename for the save dialog.
+        private string GetDefaultSaveFileName(OpenBlenderProject proj)
+        {
+            if (proj == null)
+                return "render.png";
+
+            RenderManagerSettings settings = GetSettingsFromUI(proj);
+            string name = OutputNaming.FormatOutputFileName(proj.OutputTemplate, BuildOutputContext(proj, settings, proj.FrameStart, DateTime.Now));
+
+            if (string.IsNullOrWhiteSpace(name))
+                name = "render";
+            if (string.IsNullOrEmpty(Path.GetExtension(name)))
+            {
+                string ext = Client.ImageTypes.ImageFormats.GetExtension(settings.RenderFormat) ?? "png";
+                name = name + "." + ext;
+            }
+            return name;
         }
 
 
@@ -1857,6 +2118,103 @@ namespace LogicReinc.BlendFarm.Windows
             };
             Console.WriteLine($"Render settings payload scene='{settings.Scene}', camera='{settings.Camera}'");
             return settings;
+        }
+
+        //Notification preferences (persisted immediately to BlendFarmSettings).
+        public bool NotificationsEnabled
+        {
+            get => BlendFarmSettings.Instance.NotificationsEnabled;
+            set { BlendFarmSettings.Instance.NotificationsEnabled = value; BlendFarmSettings.Instance.Save(); }
+        }
+        public bool WebhookEnabled
+        {
+            get => BlendFarmSettings.Instance.WebhookEnabled;
+            set { BlendFarmSettings.Instance.WebhookEnabled = value; BlendFarmSettings.Instance.Save(); }
+        }
+        public string WebhookUrl
+        {
+            get => BlendFarmSettings.Instance.WebhookUrl;
+            set { BlendFarmSettings.Instance.WebhookUrl = value ?? ""; BlendFarmSettings.Instance.Save(); }
+        }
+
+        //Single funnel for render-completion notifications (toast + optional webhook).
+        public void NotifyRenderCompleted(RenderCompletionInfo info)
+        {
+            if (info == null)
+                return;
+
+            BlendFarmSettings settings = BlendFarmSettings.Instance;
+            if (settings.NotificationsEnabled)
+                ShowToast(info);
+            if (settings.WebhookEnabled && !string.IsNullOrWhiteSpace(settings.WebhookUrl))
+                _ = WebhookNotifier.PostAsync(settings.WebhookUrl, info); //fire-and-forget; never throws
+        }
+
+        private RenderCompletionInfo BuildCompletionInfo(OpenBlenderProject proj, RenderManagerSettings settings, bool success, bool isAnimation, TimeSpan elapsed, string error)
+        {
+            int connectedNodes = Manager?.Nodes?.Count(x => x.Connected) ?? 0;
+            return new RenderCompletionInfo()
+            {
+                SceneName = string.IsNullOrEmpty(settings?.Scene) ? proj?.Name : settings.Scene,
+                BlendFile = proj?.BlendFile,
+                Success = success,
+                IsAnimation = isAnimation,
+                FrameStart = proj?.FrameStart ?? 0,
+                FrameEnd = proj?.FrameEnd ?? 0,
+                FrameCount = isAnimation ? Math.Max(1, (proj?.FrameEnd ?? 0) - (proj?.FrameStart ?? 0) + 1) : 1,
+                Elapsed = elapsed,
+                NodeCount = connectedNodes,
+                Width = settings?.OutputWidth ?? 0,
+                Height = settings?.OutputHeight ?? 0,
+                Samples = settings?.Samples ?? 0,
+                EngineOrError = success ? (settings?.Engine.ToString() ?? "") : error
+            };
+        }
+
+        private void ShowToast(RenderCompletionInfo info)
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_toastOverlay == null)
+                    return;
+
+                _toastIcon.Text = info.Success ? "✓" : "✗";
+                _toastIcon.Foreground = new SolidColorBrush(Color.Parse(info.Success ? "#12C979" : "#EF4444"));
+                _toastTitle.Text = info.Success ? "Render complete" : "Render failed";
+                _toastBody.Text = info.Success
+                    ? $"{info.SceneName} · {FormatDuration(info.Elapsed)} · {info.NodeCount} node(s)"
+                    : $"{info.SceneName} · {info.EngineOrError}";
+                _toastOverlay.IsVisible = true;
+
+                //Restart the dismiss timer so rapid completions don't overlap.
+                _toastTimer?.Stop();
+                _toastTimer = new DispatcherTimer() { Interval = TimeSpan.FromSeconds(6) };
+                _toastTimer.Tick += (s, e) =>
+                {
+                    _toastOverlay.IsVisible = false;
+                    _toastTimer.Stop();
+                };
+                _toastTimer.Start();
+            });
+        }
+
+        //Builds the token context used by output-filename templates.
+        private OutputNameContext BuildOutputContext(OpenBlenderProject proj, RenderManagerSettings settings, int frame, DateTime timestamp)
+        {
+            return new OutputNameContext()
+            {
+                Scene = string.IsNullOrEmpty(settings.Scene) ? proj.Name : settings.Scene,
+                Camera = settings.Camera,
+                Engine = settings.Engine.ToString(),
+                Format = settings.RenderFormat,
+                Samples = settings.Samples,
+                Width = settings.OutputWidth,
+                Height = settings.OutputHeight,
+                Frame = frame,
+                StartFrame = proj.FrameStart,
+                EndFrame = proj.FrameEnd,
+                Timestamp = timestamp
+            };
         }
 
         private void SyncSceneCameraFromInputs(OpenBlenderProject proj)

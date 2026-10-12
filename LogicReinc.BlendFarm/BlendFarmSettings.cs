@@ -52,6 +52,18 @@ namespace LogicReinc.BlendFarm
         public bool Option_ConnectLocal { get; set; } = true;
         public bool Option_ImportSettings { get; set; } = true;
 
+        /// <summary>
+        /// Render-completion notification preferences
+        /// </summary>
+        public bool NotificationsEnabled { get; set; } = true;
+        public bool WebhookEnabled { get; set; } = false;
+        public string WebhookUrl { get; set; } = "";
+
+        /// <summary>
+        /// Persisted render queue (only items that were still queued when saved)
+        /// </summary>
+        public List<QueueItemDTO> RenderQueue { get; set; } = new List<QueueItemDTO>();
+
 
         public void ApplyProjectSettings(string fileName, UIProjectSettings settings)
         {
@@ -104,6 +116,8 @@ namespace LogicReinc.BlendFarm
 
             public RenderType RenderType { get; set; } = RenderType.OPTIX_GPUONLY;
             public double Performance { get; set; }
+            //Auto benchmark score (pixels/ms); restored so work distribution survives restarts.
+            public decimal PerformanceScorePP { get; set; }
             public string Pass { get; set; }
         }
 

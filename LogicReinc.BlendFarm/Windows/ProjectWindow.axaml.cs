@@ -338,7 +338,15 @@ This may have to do with the port being in use. Note that to discover other pcs 
                 _manager.AddNode(BlendFarmManager.LocalNodeName, localAddress, RenderType.OPTIX_GPUONLY, ServerSettings.Instance.BasicSecurityPassword);
 
             foreach (var pair in BlendFarmSettings.Instance.PastClients.ToList())
-                _manager.AddNode(pair.Key, pair.Value.Address, pair.Value.RenderType, pair.Value.Pass);
+            {
+                RenderNode added = _manager.AddNode(pair.Key, pair.Value.Address, pair.Value.RenderType, pair.Value.Pass);
+                //Restore persisted performance so auto work-distribution reflects prior benchmarks.
+                if (added != null)
+                {
+                    added.Performance = pair.Value.Performance;
+                    added.PerformanceScorePP = pair.Value.PerformanceScorePP;
+                }
+            }
 
             if (useAssetSync.IsChecked.Value)
             {

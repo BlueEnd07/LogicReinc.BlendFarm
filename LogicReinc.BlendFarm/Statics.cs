@@ -51,18 +51,8 @@ namespace LogicReinc.BlendFarm
 
         public static string FormatAnimationFrameFileName(string frameFormat, int frame, int startFrame, int endFrame)
         {
-            if (string.IsNullOrEmpty(frameFormat))
-                return frame.ToString();
-
-            Match match = Regex.Match(frameFormat, "#+");
-            if (!match.Success)
-                return frameFormat;
-
-            int widestFrame = Math.Max(Math.Abs(startFrame), Math.Abs(endFrame));
-            int width = match.Length > 1 ? match.Length : Math.Max(3, widestFrame.ToString().Length);
-            string frameText = frame.ToString().PadLeft(width, '0');
-
-            return frameFormat.Substring(0, match.Index) + frameText + frameFormat.Substring(match.Index + match.Length);
+            //Delegates to the shared, unit-tested templating engine (frame-number '#' handling only).
+            return Shared.OutputNaming.ApplyFrameHashes(frameFormat, frame, startFrame, endFrame);
         }
 
         public static Bitmap ToAvaloniaBitmap(this System.Drawing.Image bitmap)
