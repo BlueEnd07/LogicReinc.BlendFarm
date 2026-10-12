@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace LogicReinc.BlendFarm.Client.Tasks
 {
@@ -13,6 +14,8 @@ namespace LogicReinc.BlendFarm.Client.Tasks
         private object _drawLock = new object();
         private Bitmap result;
         private Graphics g;
+        private int _tilesTotal = 0;
+        private int _tilesFinished = 0;
 
         public Image FinalImage { get; private set; }
 
@@ -27,7 +30,10 @@ namespace LogicReinc.BlendFarm.Client.Tasks
         }
         protected override RenderSubTask[] GetTasks()
         {
-            return GetTaskQueueInOrder(GetChunkedSubTasks(), Settings.Order);
+            RenderSubTask[] tasks = GetTaskQueueInOrder(GetChunkedSubTasks(), Settings.Order);
+            _tilesTotal = tasks.Length;
+            _tilesFinished = 0;
+            return tasks;
         }
 
         protected override void Roundup()
@@ -36,13 +42,18 @@ namespace LogicReinc.BlendFarm.Client.Tasks
                 g.Dispose();
 
             FinalImage = result;
+
+            //Tiles that failed on every attempt, don't hand back a partial image as a finished render
+            if (!Cancelled && _tilesFinished < _tilesTotal)
+                throw new Exception($"Not all tiles rendered ({_tilesFinished}/{_tilesTotal})");
         }
 
         protected override void HandleResult(RenderSubTask task, SubTaskResult tresult)
         {
-            ChangeProgress(Progress + task.Value);
             using (Image img = ImageConverter.Convert(tresult.Image, task.Parent.Settings.RenderFormat))
                 ProcessTile(task, img, ref g, ref result, ref _drawLock);
+            int finished = Interlocked.Increment(ref _tilesFinished);
+            ChangeProgress((double)finished / _tilesTotal);
         }
 
 
