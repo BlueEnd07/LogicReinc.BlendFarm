@@ -639,8 +639,8 @@
                             </Grid>
 
                             <Grid ColumnDefinitions="88,*" Margin="0,0,0,8">
-                              <TextBlock Grid.Column="0" Foreground="#B8B8B8" TextAlignment="Left" Margin="0,8,8,8" ToolTip.Tip="Default filename for saved renders. Tokens: {scene} {camera} {engine} {samples} {width} {height} {date} {time} {frame}. Use # for the zero-padded frame number.">Output Name</TextBlock>
-                              <TextBox Grid.Column="1" x:Name="inputOutputTemplate" Watermark="{}{scene}_{frame}###" Text="{Binding CurrentProject.OutputTemplate}" ToolTip.Tip="Default filename for saved renders. Tokens: {scene} {camera} {engine} {samples} {width} {height} {date} {time} {frame}. Use # for the zero-padded frame number." />
+                              <TextBlock Grid.Column="0" Foreground="#B8B8B8" TextAlignment="Left" Margin="0,8,8,8" ToolTip.Tip="Default filename for saved renders. Tokens: {scene} {camera} {engine} {samples} {width} {height} {date} {time} {frame} (unpadded). Use # for the zero-padded frame number.">Output Name</TextBlock>
+                              <TextBox Grid.Column="1" x:Name="inputOutputTemplate" Watermark="{}{scene}_###" Text="{Binding CurrentProject.OutputTemplate}" ToolTip.Tip="Default filename for saved renders. Tokens: {scene} {camera} {engine} {samples} {width} {height} {date} {time} {frame} (unpadded). Use # for the zero-padded frame number." />
                             </Grid>
 
                             <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,5">

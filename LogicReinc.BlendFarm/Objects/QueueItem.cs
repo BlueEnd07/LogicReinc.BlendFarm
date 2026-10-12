@@ -241,7 +241,7 @@ namespace LogicReinc.BlendFarm.Objects
                         {
                             string template = string.IsNullOrEmpty(Project?.OutputTemplate) ? "#" : Project.OutputTemplate;
                             string name = OutputNaming.FormatOutputFileName(template, BuildContext(Settings.Frame, Settings.Frame, Settings.Frame));
-                            if (string.IsNullOrEmpty(Path.GetExtension(name)))
+                            if (!OutputNaming.HasImageExtension(name))
                                 name = name + "." + (ImageFormats.GetExtension(Settings.RenderFormat) ?? "png");
                             target = Path.Combine(SaveTo, name);
                         }

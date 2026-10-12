@@ -44,7 +44,10 @@ namespace LogicReinc.BlendFarm.Shared
 
             int widestFrame = Math.Max(Math.Abs(startFrame), Math.Abs(endFrame));
             int width = match.Length > 1 ? match.Length : Math.Max(3, widestFrame.ToString().Length);
-            string frameText = frame.ToString().PadLeft(width, '0');
+            //Pad the digits only, so -5 becomes -005 rather than 0-5
+            string frameText = Math.Abs((long)frame).ToString().PadLeft(width, '0');
+            if (frame < 0)
+                frameText = "-" + frameText;
 
             return format.Substring(0, match.Index) + frameText + format.Substring(match.Index + match.Length);
         }
@@ -101,9 +104,25 @@ namespace LogicReinc.BlendFarm.Shared
             return true;
         }
 
+        private static readonly string[] ImageExtensions = new string[]
+        {
+            ".png", ".jpg", ".jpeg", ".jp2", ".bmp", ".tga", ".cin", ".dpx", ".exr", ".hdr", ".tif", ".tiff", ".webp"
+        };
+
+        /// <summary>
+        /// True if the name ends in a known image extension. Path.GetExtension alone treats
+        /// any dot as an extension, e.g. a scene named "Shot.v2".
+        /// </summary>
+        public static bool HasImageExtension(string name)
+        {
+            string ext = Path.GetExtension(name ?? "");
+            return Array.Exists(ImageExtensions, x => string.Equals(x, ext, StringComparison.OrdinalIgnoreCase));
+        }
+
         private static string ReplaceToken(string input, string token, string value)
         {
-            return Regex.Replace(input, "\\{" + token + "\\}", value ?? "", RegexOptions.IgnoreCase);
+            //Evaluator so '$' in a value isn't treated as a regex substitution
+            return Regex.Replace(input, "\\{" + token + "\\}", m => value ?? "", RegexOptions.IgnoreCase);
         }
 
         private static string Sanitize(string value)
@@ -112,6 +131,8 @@ namespace LogicReinc.BlendFarm.Shared
                 return "";
             foreach (char c in Path.GetInvalidFileNameChars())
                 value = value.Replace(c.ToString(), "");
+            //'#' in a token value would be taken as frame padding
+            value = value.Replace("#", "");
             return value;
         }
     }

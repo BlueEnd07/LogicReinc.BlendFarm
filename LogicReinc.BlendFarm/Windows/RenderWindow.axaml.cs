@@ -1917,7 +1917,7 @@ namespace LogicReinc.BlendFarm.Windows
 
             if (string.IsNullOrWhiteSpace(name))
                 name = "render";
-            if (string.IsNullOrEmpty(Path.GetExtension(name)))
+            if (!OutputNaming.HasImageExtension(name))
             {
                 string ext = Client.ImageTypes.ImageFormats.GetExtension(settings.RenderFormat) ?? "png";
                 name = name + "." + ext;

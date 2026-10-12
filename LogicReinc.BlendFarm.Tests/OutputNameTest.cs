@@ -74,5 +74,34 @@ namespace LogicReinc.BlendFarm.Tests
             Assert.IsFalse(OutputNaming.TryValidateTemplate("bad:name_#.png", out string error));
             Assert.IsNotNull(error);
         }
+
+        [TestMethod]
+        public void HashInTokenValueDoesNotHijackPadding()
+        {
+            OutputNameContext ctx = new OutputNameContext { Scene = "Shot#1", Frame = 12, StartFrame = 1, EndFrame = 100 };
+            Assert.AreEqual("Shot1_012.png", OutputNaming.FormatOutputFileName("{scene}_###.png", ctx));
+        }
+
+        [TestMethod]
+        public void DollarInTokenValueIsLiteral()
+        {
+            OutputNameContext ctx = new OutputNameContext { Scene = "Cost$1", Frame = 1, StartFrame = 1, EndFrame = 1 };
+            Assert.AreEqual("Cost$1_001.png", OutputNaming.FormatOutputFileName("{scene}_#.png", ctx));
+        }
+
+        [TestMethod]
+        public void NegativeFramesPadDigits()
+        {
+            Assert.AreEqual("-005.png", OutputNaming.ApplyFrameHashes("###.png", -5, -10, 10));
+        }
+
+        [TestMethod]
+        public void ImageExtensionDetection()
+        {
+            Assert.IsTrue(OutputNaming.HasImageExtension("Shot_001.png"));
+            Assert.IsTrue(OutputNaming.HasImageExtension("Shot_001.EXR"));
+            Assert.IsFalse(OutputNaming.HasImageExtension("Shot.v2_001"));
+            Assert.IsFalse(OutputNaming.HasImageExtension("render"));
+        }
     }
 }
