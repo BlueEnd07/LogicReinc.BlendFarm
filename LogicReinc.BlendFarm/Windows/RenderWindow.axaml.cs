@@ -804,7 +804,7 @@ namespace LogicReinc.BlendFarm.Windows
             Dispatcher.UIThread.InvokeAsync(() => AddActivityLog($"{node.NodeTitle}: {message}"));
         }
 
-        private void AddActivityLog(string message, ActivityLogType logType = ActivityLogType.Info)
+        internal void AddActivityLog(string message, ActivityLogType logType = ActivityLogType.Info)
         {
             if (string.IsNullOrWhiteSpace(message))
                 return;
@@ -1411,29 +1411,30 @@ namespace LogicReinc.BlendFarm.Windows
 
                     
                     //Create Task
-                    RenderTask rtask = Manager.GetAnimationTask(currentProject.BlendFile, currentProject.FrameStart, currentProject.FrameEnd, settings, async (task, frame) =>
+                    RenderTask rtask = Manager.GetAnimationTask(currentProject.BlendFile, currentProject.FrameStart, currentProject.FrameEnd, settings, (task, frame) =>
                     {
                         int renderedFrame = task.Frame;
-                        int renderedCount = Interlocked.Increment(ref completedFrames);
-                        DateTime now = DateTime.UtcNow;
-                        TimeSpan frameDuration = now - lastFrameFinishedAt;
-                        lastFrameFinishedAt = now;
-
                         string fileName = OutputNaming.FormatOutputFileName(animationFileFormat, BuildOutputContext(currentProject, settings, task.Frame, renderStartTime));
                         string filePath = Path.Combine(outputDir, fileName);
 
+                        //Save synchronously and let failures throw, so the frame is retried instead of silently lost
                         try
                         {
                             File.WriteAllBytes(filePath, frame.Image);
                         }
                         catch (Exception ex)
                         {
-                            await MessageWindow.ShowOnUIThread(this, "Frame Save Error", $"Animation frame {task.Frame} failed to save due to:" + ex.Message);
-                            return;
+                            Dispatcher.UIThread.Post(() => AddActivityLog($"Frame {task.Frame} failed to save: {ex.Message}", ActivityLogType.Error));
+                            throw;
                         }
 
+                        int renderedCount = Interlocked.Increment(ref completedFrames);
+                        DateTime now = DateTime.UtcNow;
+                        TimeSpan frameDuration = now - lastFrameFinishedAt;
+                        lastFrameFinishedAt = now;
+
                         //Apply image to canvas
-                        await Dispatcher.UIThread.InvokeAsync(() =>
+                        _ = Dispatcher.UIThread.InvokeAsync(() =>
                         {
                             try
                             {
@@ -1592,7 +1593,7 @@ namespace LogicReinc.BlendFarm.Windows
                 }
                 catch (Exception ex)
                 {
-                    if (!await YesNoWindow.Show(this, "Exception in Queue", $"Exception \"{ex.Message}\" occured in queue. Continue queue process?"))
+                    if (!await YesNoWindow.ShowOnUIThread(this, "Exception in Queue", $"Exception \"{ex.Message}\" occured in queue. Continue queue process?"))
                         IsQueueing = false;
                 }
                 finally

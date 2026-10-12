@@ -268,7 +268,7 @@ namespace LogicReinc.BlendFarm.Objects
 
                     //Normal Render
                     int endFrame = Settings.Frame + Frames - 1;
-                    Task = manager.GetAnimationTask(Project.BlendFile, Settings.Frame, endFrame, Settings, async (task, frame) =>
+                    Task = manager.GetAnimationTask(Project.BlendFile, Settings.Frame, endFrame, Settings, (task, frame) =>
                     {
 
                         string fileName = OutputNaming.FormatOutputFileName(FrameFormat, BuildContext(task.Frame, Settings.Frame, endFrame));
@@ -280,8 +280,9 @@ namespace LogicReinc.BlendFarm.Objects
                         }
                         catch (Exception ex)
                         {
-                            MessageWindow.Show(_owner, "Frame Save Error", $"Animation frame {task.Frame} failed to save due to:" + ex.Message);
-                            return;
+                            //Throw so the frame is retried instead of silently lost
+                            Dispatcher.UIThread.Post(() => _owner.AddActivityLog($"Queue frame {task.Frame} failed to save: {ex.Message}", ActivityLogType.Error));
+                            throw;
                         }
 
                         using (System.Drawing.Image image = ImageConverter.Convert(frame.Image, task.Parent.Settings.RenderFormat))
@@ -289,7 +290,8 @@ namespace LogicReinc.BlendFarm.Objects
                             if (image != null)
                             {
                                 Project.LastImage = image.ToAvaloniaBitmap();
-                                LastImage = image;
+                                //Clone, image is disposed when leaving the using block
+                                LastImage = (System.Drawing.Image)image.Clone();
                             }
                             else
                                 Project.LastImage = Statics.NoPreviewImage;
