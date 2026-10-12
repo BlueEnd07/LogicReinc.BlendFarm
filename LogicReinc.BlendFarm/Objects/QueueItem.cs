@@ -221,8 +221,14 @@ namespace LogicReinc.BlendFarm.Objects
                         await manager.Sync(Project.BlendFile, Project.NetworkPathWindows, Project.NetworkPathLinux, Project.NetworkPathMacOS);
                     Thread.Sleep(500);
 
-                    await Task.Render();
+                    bool rendered = await Task.Render();
                     System.Drawing.Image final = ((Task is IImageTask) ? (IImageTask)Task : null)?.FinalImage;
+                    if (!rendered || Task.Cancelled || final == null)
+                    {
+                        //Cancelled or produced nothing, don't save or report it as completed
+                        StoppedEarly(window);
+                        return;
+                    }
                     Thread.Sleep(500);
                     LastImage = final;
                     FinishedAllFrames = true;
@@ -313,8 +319,13 @@ namespace LogicReinc.BlendFarm.Objects
 
                     Thread.Sleep(500);
 
-                    await Task.Render();
+                    bool renderedAnim = await Task.Render();
                     //await Task.RenderAnimation(Settings.Frame, Settings.Frame + Frames);
+                    if (!renderedAnim || Task.Cancelled)
+                    {
+                        StoppedEarly(window);
+                        return;
+                    }
 
                     FinishedAllFrames = true;
                     Project.SetRenderTask(null);
@@ -336,6 +347,14 @@ namespace LogicReinc.BlendFarm.Objects
                 queueWatch.Stop();
                 _owner.NotifyRenderCompleted(BuildCompletionInfo(false, queueWatch.Elapsed, ex.Message, manager));
             }
+        }
+
+        private void StoppedEarly(RenderWindow window)
+        {
+            Cancelled = true;
+            Project.SetRenderTask(null);
+            RefreshInfo();
+            window?.RefreshCurrentProject();
         }
 
         public void RefreshInfo()

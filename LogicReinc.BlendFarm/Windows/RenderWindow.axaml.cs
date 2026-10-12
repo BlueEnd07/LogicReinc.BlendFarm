@@ -1256,9 +1256,9 @@ namespace LogicReinc.BlendFarm.Windows
             //Start rendering thread
             await Task.Run(async () =>
             {
+                Stopwatch watch = new Stopwatch();
                 try
                 {
-                    Stopwatch watch = new Stopwatch();
                     watch.Start();
 
 
@@ -1299,8 +1299,10 @@ namespace LogicReinc.BlendFarm.Windows
                     await Dispatcher.UIThread.InvokeAsync(() => RaisePropertyChanged(IsRenderingProperty, false, true));
 
                     //Render
-                    await currentProject.CurrentTask.Render();
+                    bool rendered = await currentProject.CurrentTask.Render();
                     var finalImage = ((currentProject.CurrentTask is IImageTask) ? (IImageTask)currentProject.CurrentTask : null)?.FinalImage;
+                    //A cancelled render still returns, don't report it as completed
+                    bool completed = rendered && !currentProject.CurrentTask.Cancelled && finalImage != null;
 
                     //Finalize
                     await Dispatcher.UIThread.InvokeAsync(() =>
@@ -1313,11 +1315,16 @@ namespace LogicReinc.BlendFarm.Windows
 
                             finalImage.Save("lastRender.png");
                         }
-                        UpdateRenderTiming(watch, 1);
-                        RecordRenderedFrames(1, watch.Elapsed);
                         this._imageProgress.IsVisible = false;
-                        AddActivityLog($"Render completed in {FormatDuration(watch.Elapsed)}", ActivityLogType.Success);
-                        NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, true, false, watch.Elapsed, null));
+                        if (completed)
+                        {
+                            UpdateRenderTiming(watch, 1);
+                            RecordRenderedFrames(1, watch.Elapsed);
+                            AddActivityLog($"Render completed in {FormatDuration(watch.Elapsed)}", ActivityLogType.Success);
+                            NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, true, false, watch.Elapsed, null));
+                        }
+                        else
+                            AddActivityLog("Render stopped before completion", ActivityLogType.Warning);
                     });
                     watch.Stop();
 
@@ -1332,7 +1339,7 @@ namespace LogicReinc.BlendFarm.Windows
                         AddActivityLog($"Render failed: {ex.Message}", ActivityLogType.Error);
                         if (_animationEstimatedRemaining != null && _animationProgressPanel?.IsVisible == true)
                             _animationEstimatedRemaining.Text = "Failed";
-                        NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, false, false, TimeSpan.Zero, ex.Message));
+                        NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, false, false, watch.Elapsed, ex.Message));
                     });
 
                     if(!noExcep)
@@ -1392,9 +1399,9 @@ namespace LogicReinc.BlendFarm.Windows
 
             await Task.Run(async () =>
             {
+                Stopwatch watch = new Stopwatch();
                 try
                 {
-                    Stopwatch watch = new Stopwatch();
                     watch.Start();
                     int completedFrames = 0;
                     int totalFrames = Math.Max(1, currentProject.FrameEnd - currentProject.FrameStart + 1);
@@ -1502,7 +1509,7 @@ namespace LogicReinc.BlendFarm.Windows
                         AddActivityLog($"Animation render failed: {ex.Message}", ActivityLogType.Error);
                         if (_animationEstimatedRemaining != null && _animationProgressPanel?.IsVisible == true)
                             _animationEstimatedRemaining.Text = "Failed";
-                        NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, false, true, TimeSpan.Zero, ex.Message));
+                        NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, false, true, watch.Elapsed, ex.Message));
                     });
 
                     await MessageWindow.ShowOnUIThread(this, "Failed Render", "Failed render due to:" + ex.Message);
