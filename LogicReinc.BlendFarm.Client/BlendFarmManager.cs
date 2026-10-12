@@ -340,16 +340,18 @@ namespace LogicReinc.BlendFarm.Client
         {
             long oldID = session.FileID;
             FileInfo info = new FileInfo(session.BlendFile);
-            session.FileID = info.LastWriteTime.Ticks;
+            long newID = info.LastWriteTime.Ticks;
             session.Networked = shared;
 
             string sharedPath = SessionUtil.GetSessionNetworkPath(info.FullName, session.SessionID);
-            if (oldID != session.FileID)
+            if (oldID != newID)
             {
                 if (!shared)
                     File.Copy(session.BlendFile, session.LocalBlendFile, true);
                 else
                     File.Copy(session.BlendFile, sharedPath, true);
+                //Only take the new version once the copy succeeded, so a failed copy is retried
+                session.FileID = newID;
                 foreach (RenderNode node in Nodes)
                     node.UpdateSyncedStatus(session.SessionID, false);
             }
@@ -505,7 +507,8 @@ namespace LogicReinc.BlendFarm.Client
                 //Optimize
                 long id = session.FileID;
 
-                string toSend = file;
+                //Send the snapshot copy, not the live file the user may be saving
+                string toSend = session.LocalBlendFile;
 
                 if(compress)
                     using (FileStream mem = new FileStream("compressed.zip", FileMode.Create))
@@ -516,12 +519,12 @@ namespace LogicReinc.BlendFarm.Client
                         {
                             Nodes.ToList().ForEach(x => x.UpdateActivity("Compressing.."));
 
-                            using (FileStream str = new FileStream(session.BlendFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+                            using (FileStream str = new FileStream(session.LocalBlendFile, FileMode.Open, FileAccess.Read, FileShare.Read))
                             using (Stream zip = new GZipStream(mem, CompressionMode.Compress, true))
                             {
                                 int read = 0;
                                 while ((read = str.Read(buffer, 0, buffer.Length)) > 0)
-                                    zip.Write(buffer, 0, buffer.Length);
+                                    zip.Write(buffer, 0, read);
                             }
 
                             Nodes.ToList().ForEach(x => x.UpdateActivity(""));
