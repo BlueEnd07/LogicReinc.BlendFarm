@@ -116,7 +116,12 @@ namespace LogicReinc.BlendFarm.Shared
             int done = 0;
 
             while (done < result.Length)
-                done += reader.Read(result, done, Math.Min(4086, result.Length - done));
+            {
+                int chunk = reader.Read(result, done, Math.Min(4086, result.Length - done));
+                if (chunk <= 0)
+                    throw new EndOfStreamException($"Stream ended after {done} of {result.Length} bytes");
+                done += chunk;
+            }
 
             return result;
         }
@@ -135,8 +140,9 @@ namespace LogicReinc.BlendFarm.Shared
         {
             int read = rea.ReadInt32();
 
-            byte[] data = new byte[read];
-            rea.Read(data, 0, read);
+            byte[] data = rea.ReadBytes(read);
+            if (data.Length != read)
+                throw new EndOfStreamException($"Stream ended after {data.Length} of {read} string bytes");
 
             return Encoding.UTF8.GetString(data);
         }

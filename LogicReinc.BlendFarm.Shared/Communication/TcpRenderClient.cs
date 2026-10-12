@@ -158,23 +158,51 @@ namespace LogicReinc.BlendFarm.Shared.Communication
             while (Listening)
             {
 
-                int read = 0;
-                if ((read = await str.ReadAsync(headerBytes, 0, MAX_HEADER_SIZE, _cancel.Token)) != MAX_HEADER_SIZE)
-                {
-                    if (read == 0)
-                        throw new IOException("Connection closed by remote host");
-                    throw new InvalidDataException($"Expected header of length {MAX_HEADER_SIZE}, found {read}");
-                }
+                await ReadExactlyAsync(str, headerBytes, MAX_HEADER_SIZE);
                 string header = Encoding.UTF8.GetString(headerBytes).Trim('_');
 
-                if ((read = await str.ReadAsync(sizeBytes, 0, 4, _cancel.Token)) != sizeBytes.Length)
-                    throw new InvalidDataException($"Expected size of length {sizeBytes.Length}, found {read}");
+                await ReadExactlyAsync(str, sizeBytes, sizeBytes.Length);
                 int size = (int)BinaryParser.Deserialize(sizeBytes, typeof(int));
+                if (size < 0)
+                    throw new InvalidDataException($"Invalid packet size {size}");
 
                 if(header != "consoleActivityResponse")
                     Console.WriteLine($"Received {header} [{size}] from {Client.Client.RemoteEndPoint}");
 
+                //Unknown packet, skip its body to stay in sync with the stream
+                if (!BlendFarmMessage.HasPackageType(header))
+                {
+                    await SkipBytesAsync(str, size);
+                    continue;
+                }
+
                 HandlePacket(header, reader);
+            }
+        }
+
+        /// <summary>
+        /// Reads exactly count bytes, TCP may return a partial read
+        /// </summary>
+        private async Task ReadExactlyAsync(Stream str, byte[] buffer, int count)
+        {
+            int done = 0;
+            while (done < count)
+            {
+                int read = await str.ReadAsync(buffer, done, count - done, _cancel.Token);
+                if (read == 0)
+                    throw new IOException("Connection closed by remote host");
+                done += read;
+            }
+        }
+        private async Task SkipBytesAsync(Stream str, int count)
+        {
+            byte[] buffer = new byte[Math.Min(count, 8192)];
+            while (count > 0)
+            {
+                int read = await str.ReadAsync(buffer, 0, Math.Min(count, buffer.Length), _cancel.Token);
+                if (read == 0)
+                    throw new IOException("Connection closed by remote host");
+                count -= read;
             }
         }
 
