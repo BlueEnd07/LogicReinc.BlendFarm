@@ -38,6 +38,13 @@ namespace LogicReinc.BlendFarm.Server
         /// </summary>
         public bool BypassScriptUpdate { get; set; } = false;
 
+        /// <summary>
+        /// Kill Blender if it prints nothing for this many minutes while rendering (hung process),
+        /// so the client can retry the frame elsewhere. 0 disables the watchdog.
+        /// Keep it generous, heavy scenes can be silent for a while during loading/BVH/shader compiles.
+        /// </summary>
+        public int WatchdogMinutes { get; set; } = 30;
+
 
         /// <summary>
         /// Very basic security password. NOT actually very secure, but by request.

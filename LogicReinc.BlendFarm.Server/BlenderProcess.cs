@@ -50,6 +50,12 @@ namespace LogicReinc.BlendFarm.Server
 
         public int ContinueCount { get; private set; }
 
+        /// <summary>
+        /// Last time Blender printed anything, used by the watchdog
+        /// </summary>
+        public DateTime LastOutput { get; private set; } = DateTime.Now;
+        private System.Threading.Timer _watchdog = null;
+
         public List<string> Results { get; private set; } = new List<string>();
         public List<string> Exceptions { get; private set; } = new List<string>();
 
@@ -105,10 +111,13 @@ namespace LogicReinc.BlendFarm.Server
                     CreateNoWindow = true
                 }
             };
+            process.EnableRaisingEvents = true;
             process.Exited += (a, b) => Active = false;
             Process = process;
             process.Start();
             Active = true;
+            LastOutput = DateTime.Now;
+            StartWatchdog();
 
             while (!process.StandardOutput.EndOfStream)
             {
@@ -122,6 +131,8 @@ namespace LogicReinc.BlendFarm.Server
             }
 
             process.WaitForExit();
+            _watchdog?.Dispose();
+            _watchdog = null;
             return new Result()
             {
                 Results = Results.ToArray(),
@@ -137,6 +148,7 @@ namespace LogicReinc.BlendFarm.Server
                     throw new InvalidOperationException("Attempting to continue a process that is not in continue state");
                 IsContinueing = false;
             }
+            LastOutput = DateTime.Now;
             Process.StandardInput.WriteLine(newPath);
             while (!Process.StandardOutput.EndOfStream)
             {
@@ -146,6 +158,8 @@ namespace LogicReinc.BlendFarm.Server
             }
 
             Process.WaitForExit();
+            _watchdog?.Dispose();
+            _watchdog = null;
         }
 
         /// <summary>
@@ -155,8 +169,39 @@ namespace LogicReinc.BlendFarm.Server
         {
             IsContinueing = false;
             Active = false;
-            if (Process != null)
-                Process.Kill();
+            _watchdog?.Dispose();
+            _watchdog = null;
+            try
+            {
+                if (Process != null && !Process.HasExited)
+                    Process.Kill(true);
+            }
+            catch (InvalidOperationException) { } //Already exited
+        }
+
+        /// <summary>
+        /// Kills Blender when it stops producing output while rendering
+        /// </summary>
+        private void StartWatchdog()
+        {
+            int minutes = ServerSettings.Instance.WatchdogMinutes;
+            if (minutes <= 0)
+                return;
+            _watchdog?.Dispose();
+            _watchdog = new System.Threading.Timer((state) =>
+            {
+                //Waiting for a continuation is expected silence, that has its own timeout
+                if (!Active || IsContinueing)
+                    return;
+                if (DateTime.Now.Subtract(LastOutput).TotalMinutes >= minutes)
+                {
+                    string msg = $"Watchdog: Blender produced no output for {minutes} minutes, killing it";
+                    Console.WriteLine(msg);
+                    Exceptions.Add(msg);
+                    OnBlenderException?.Invoke(msg);
+                    Cancel();
+                }
+            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
 
 
@@ -166,6 +211,7 @@ namespace LogicReinc.BlendFarm.Server
         /// <param name="line"></param>
         private bool ProcessBlenderLine(string line)
         {
+            LastOutput = DateTime.Now;
             Console.WriteLine(line);
 
             try
