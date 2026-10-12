@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LogicReinc.BlendFarm.Shared;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Collections;
@@ -67,6 +68,8 @@ namespace LogicReinc.BlendFarm.Server
         /// </summary>
         public static SessionData GetOrCreate(string sessionID)
         {
+            if (!SessionUtil.IsSafeId(sessionID))
+                throw new ArgumentException("Invalid SessionID");
             lock (Sessions)
             {
                 if (!Sessions.ContainsKey(sessionID))
