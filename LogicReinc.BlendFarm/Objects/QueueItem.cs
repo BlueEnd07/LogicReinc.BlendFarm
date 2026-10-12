@@ -179,7 +179,8 @@ namespace LogicReinc.BlendFarm.Objects
                 Width = Settings?.OutputWidth ?? 0,
                 Height = Settings?.OutputHeight ?? 0,
                 Samples = Settings?.Samples ?? 0,
-                EngineOrError = success ? (Settings?.Engine.ToString() ?? "") : error
+                EngineOrError = success ? (Settings?.Engine.ToString() ?? "") : error,
+                OutputDirectory = string.IsNullOrEmpty(SaveTo) ? null : (Directory.Exists(SaveTo) ? SaveTo : Path.GetDirectoryName(SaveTo))
             };
         }
 

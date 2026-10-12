@@ -155,6 +155,8 @@ namespace LogicReinc.BlendFarm.Windows
         private TextBlock _toastTitle = null;
         private TextBlock _toastBody = null;
         private TextBlock _toastIcon = null;
+        private Button _toastOpenFolder = null;
+        private string _toastFolder = null;
         private DispatcherTimer _toastTimer = null;
         private ComboBox _selectStrategy = null;
         private ComboBox _selectOrder = null;
@@ -368,6 +370,16 @@ namespace LogicReinc.BlendFarm.Windows
             _toastTitle = this.Find<TextBlock>("toastTitle");
             _toastBody = this.Find<TextBlock>("toastBody");
             _toastIcon = this.Find<TextBlock>("toastIcon");
+            _toastOpenFolder = this.Find<Button>("toastOpenFolder");
+            if (_toastOpenFolder != null)
+                _toastOpenFolder.Click += (s, e) =>
+                {
+                    if (!string.IsNullOrEmpty(_toastFolder) && Directory.Exists(_toastFolder))
+                    {
+                        try { OpenUrl(_toastFolder); }
+                        catch (Exception ex) { AddActivityLog($"Could not open folder: {ex.Message}", ActivityLogType.Error); }
+                    }
+                };
             _selectStrategy = this.Find<ComboBox>("selectStrategy");
             _selectOrder = this.Find<ComboBox>("selectOrder");
             _selectOutputType = this.Find<ComboBox>("selectOutputType");
@@ -1515,7 +1527,11 @@ namespace LogicReinc.BlendFarm.Windows
                         else
                             AddActivityLog("Animation render stopped before completion", ActivityLogType.Warning);
                         if (success)
-                            NotifyRenderCompleted(BuildCompletionInfo(currentProject, settings, true, true, watch.Elapsed, null));
+                        {
+                            RenderCompletionInfo info = BuildCompletionInfo(currentProject, settings, true, true, watch.Elapsed, null);
+                            info.OutputDirectory = outputDir;
+                            NotifyRenderCompleted(info);
+                        }
                     });
                     if (success)
                         _ = MessageWindow.ShowOnUIThread(this, "Animation Rendered", $"Frames {currentProject.FrameStart} to {currentProject.FrameEnd} rendered.\nLocated at {outputDir}.");
@@ -2257,6 +2273,9 @@ namespace LogicReinc.BlendFarm.Windows
                 _toastBody.Text = info.Success
                     ? $"{info.SceneName} · {FormatDuration(info.Elapsed)} · {info.NodeCount} node(s)"
                     : $"{info.SceneName} · {info.EngineOrError}";
+                _toastFolder = info.OutputDirectory;
+                if (_toastOpenFolder != null)
+                    _toastOpenFolder.IsVisible = info.Success && !string.IsNullOrEmpty(_toastFolder) && Directory.Exists(_toastFolder);
                 _toastOverlay.IsVisible = true;
 
                 //Restart the dismiss timer so rapid completions don't overlap.

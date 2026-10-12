@@ -342,6 +342,7 @@
             <TextBlock x:Name="toastTitle" FontWeight="Bold" Foreground="#F4F6FF" Text="Render complete" />
             <TextBlock x:Name="toastBody" Foreground="#B8B8B8" TextWrapping="Wrap" Text="" />
           </StackPanel>
+          <Button x:Name="toastOpenFolder" IsVisible="False" VerticalAlignment="Center" Margin="14,0,0,0" Padding="10,4" ToolTip.Tip="Open the folder the render was saved to">Open folder</Button>
         </StackPanel>
       </Border>
       <GridSplitter Grid.Row="2"

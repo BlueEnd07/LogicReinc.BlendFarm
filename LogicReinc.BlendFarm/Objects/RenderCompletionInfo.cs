@@ -22,5 +22,7 @@ namespace LogicReinc.BlendFarm.Objects
         public int Samples { get; set; }
         /// <summary>Engine name on success, or the error message on failure.</summary>
         public string EngineOrError { get; set; }
+        /// <summary>Folder the output was saved to, if any (offered as "Open folder" in the toast).</summary>
+        public string OutputDirectory { get; set; }
     }
 }
