@@ -645,17 +645,16 @@ namespace LogicReinc.BlendFarm.Server
 
             bool useContinuation = USE_CONTINUATION && !batch.Any(x => x.FreshProcess);
 
-            //Does an ongoing render process match Blender, File, and File version
-            if(RenderProcess != null && RenderProcess.Active && RenderProcess.IsContinueing && 
-                (!useContinuation || version != RenderProcess.Version || file != RenderProcess.File || RenderProcess.FileID != fileId))
-            {
-                Console.WriteLine("Old continueing RenderProcess, cancelling..");
-                RenderProcess.Cancel();
-                RenderProcess = null;
-            }
-
             try
             {
+                //Does an ongoing render process match Blender, File, and File version
+                if(RenderProcess != null && RenderProcess.Active && RenderProcess.IsContinueing && 
+                    (!useContinuation || version != RenderProcess.Version || file != RenderProcess.File || RenderProcess.FileID != fileId))
+                {
+                    Console.WriteLine("Old continueing RenderProcess, cancelling..");
+                    RenderProcess.Cancel();
+                    RenderProcess = null;
+                }
 
                 Directory.CreateDirectory(Path.GetFullPath(RenderData));
 
@@ -701,7 +700,8 @@ namespace LogicReinc.BlendFarm.Server
             }
             finally
             {
-                if (!useContinuation || !RenderProcess.Active)
+                //RenderProcess is null if the render failed before Blender was started
+                if (!useContinuation || RenderProcess?.Active != true)
                 {
                     RenderSession = null;
                     RenderProcess = null;
