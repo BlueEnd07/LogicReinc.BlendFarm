@@ -22,6 +22,15 @@ namespace LogicReinc.BlendFarm.Shared
     public abstract class RenderTask : INotifyPropertyChanged
     {
         /// <summary>
+        /// Times a single subtask may fail (on any node) before it is given up on
+        /// </summary>
+        protected const int MAX_SUBTASK_ATTEMPTS = 3;
+        /// <summary>
+        /// Consecutive failures after which a node stops taking subtasks in this render
+        /// </summary>
+        protected const int MAX_NODE_FAILURES = 3;
+
+        /// <summary>
         /// Used to identify the task
         /// </summary>
         public string ID { get; set; } = Guid.NewGuid().ToString();
@@ -386,14 +395,22 @@ namespace LogicReinc.BlendFarm.Shared
         protected void HandleQueue(RenderNode[] nodes, RenderSubTask[] tasks, Action<RenderSubTask, SubTaskResult> onFinished, Action<RenderNode, RenderSubTask, Exception> onException)
         {
             ConcurrentQueue<RenderSubTask> subtasks = new ConcurrentQueue<RenderSubTask>(tasks);
+            ConcurrentDictionary<RenderSubTask, int> attempts = new ConcurrentDictionary<RenderSubTask, int>();
+            //Subtasks not yet finished or given up on, including those currently rendering
+            int remaining = tasks.Length;
 
             ForceParallel(nodes, (node) =>
             {
-                while (subtasks.Count > 0 && !Cancelled)
+                int nodeFailures = 0;
+                //Keep going until every subtask is done, a failing subtask may be requeued by another node at any time
+                while (Volatile.Read(ref remaining) > 0 && !Cancelled)
                 {
                     RenderSubTask task = null;
                     if (!subtasks.TryDequeue(out task))
+                    {
+                        Thread.Sleep(100);
                         continue;
+                    }
                     SubTaskResult taskPart = null;
                     try
                     {
@@ -408,19 +425,27 @@ namespace LogicReinc.BlendFarm.Shared
 
                         NotifySubTaskFinished(node, task);
                         onFinished(task, taskPart);
+                        nodeFailures = 0;
+                        Interlocked.Decrement(ref remaining);
                     }
-                    catch (TaskCanceledException ex)
+                    catch (TaskCanceledException) when (Cancelled)
                     {
-                        if (Cancelled)
-                            return;
+                        return;
                     }
                     catch (Exception ex)
                     {
-                        if (task != null)
+                        nodeFailures++;
+                        int tries = attempts.AddOrUpdate(task, 1, (t, c) => c + 1);
+                        if (tries < MAX_SUBTASK_ATTEMPTS)
                             subtasks.Enqueue(task);
+                        else
+                            Interlocked.Decrement(ref remaining); //Give up, Roundup reports it as missing
                         node.UpdateException($"Render fail: {ex.Message}");
                         onException(node, task, ex);
-                        return;
+
+                        //Stop using a node that disconnected or keeps failing, the others pick up its work
+                        if (!node.Connected || nodeFailures >= MAX_NODE_FAILURES)
+                            return;
                     }
                 }
                 node.UpdateActivity("");

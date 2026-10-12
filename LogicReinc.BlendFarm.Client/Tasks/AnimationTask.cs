@@ -52,12 +52,20 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
         protected override void HandleResult(RenderSubTask task, SubTaskResult result)
         {
-            lock (_lock)
-                _finished++;
-
-            ChangeProgress((double)_finished / _framesTotal);
-
+            //Invoke first, if handling (e.g. saving) fails the frame is retried and shouldn't count yet
             OnFrameResult?.Invoke(task, result);
+
+            int finished;
+            lock (_lock)
+                finished = ++_finished;
+
+            ChangeProgress((double)finished / _framesTotal);
+        }
+
+        protected override void HandleException(RenderNode node, RenderSubTask task, Exception ex)
+        {
+            lock (_lock)
+                _exceptions.Add(new Exception($"Frame {task?.Frame} on {node?.Name}: {ex.Message}", ex));
         }
     }
 }
